@@ -1,0 +1,12 @@
+[Unit]
+Description=Fallback WiFi AP Mode
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/bash /opt/wifi-fallback/ap_mode.sh
+Restart=always
+RestartSec=600
+
+[Install]
+WantedBy=multi-user.target
+
