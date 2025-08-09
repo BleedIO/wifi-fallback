@@ -2,14 +2,37 @@
 {% block title %}Configure Wi‑Fi | BleedIO Tech{% endblock %}
 {% block content %}
   <h2>Connect to Wi‑Fi</h2>
+
+  {% if networks and networks|length %}
+    <h3 style="margin-top:16px;">Saved Wi‑Fi networks</h3>
+    <ul style="list-style:none; padding:0; margin:8px 0 0 0;">
+      {% for n in networks %}
+        <li style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #eee;">
+          <span style="flex:1;">
+            {{ n.name }}
+            {% if n.active %}
+              <span style="font-size:12px; color:#2e7d32;">• active on {{ n.device }}</span>
+            {% endif %}
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p style="margin-top:16px; color:#666;">No saved Wi‑Fi profiles yet.</p>
+  {% endif %}
+
   <p>Enter your Wi‑Fi credentials below.</p>
 
   <form method="post" onsubmit="showProgress()"
         style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
     <input type="text" name="ssid" placeholder="Network SSID" required autofocus
            style="padding:10px; border:1px solid #ccc; border-radius:8px; font-size:16px;">
-    <input type="password" name="password" placeholder="Password" required
-           style="padding:10px; border:1px solid #ccc; border-radius:8px; font-size:16px;">
+    <input type="password" id="wifi-pass" name="password" placeholder="Password" required
+          style="padding:10px; border:1px solid #ccc; border-radius:8px; font-size:16px;">
+
+    <label style="margin-top:4px; font-size:14px; color:#555; display:flex; align-items:center; gap:6px;">
+      <input type="checkbox" onclick="togglePassword()"> Show password
+    </label>
 
     <div style="display:flex; gap:10px;">
       <input type="submit" value="Connect"
@@ -28,6 +51,12 @@
     </div>
   </form>
 
+  <script>
+    function togglePassword() {
+      const passField = document.getElementById('wifi-pass');
+      passField.type = passField.type === 'password' ? 'text' : 'password';
+    }
+  </script>
   <script>
     function cancelAP() {
       fetch('/cancel').then(()=>location.href='/confirmation').catch(()=>alert('Failed to stop AP.'));

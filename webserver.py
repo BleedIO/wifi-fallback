@@ -30,6 +30,36 @@ def is_port_in_use(port, host='0.0.0.0'):
         s.settimeout(0.5)
         return s.connect_ex((host, port)) == 0
 
+def get_configured_networks():
+    # Saved Wi‑Fi profiles (TYPE is '802-11-wireless', not 'wifi')
+    lines = subprocess.run(
+        "nmcli -t -f NAME,TYPE connection show",
+        shell=True, capture_output=True, text=True, check=False
+    ).stdout.splitlines()
+
+    saved = []
+    for l in lines:
+        parts = l.split(":", 1)
+        if len(parts) == 2 and parts[1] == "802-11-wireless":
+            name = parts[0]
+            if name != "Hotspot":  # hide the AP profile from the “saved” list
+                saved.append(name)
+
+    # Active connections (NAME + DEVICE)
+    active_lines = subprocess.run(
+        "nmcli -t -f NAME,DEVICE connection show --active",
+        shell=True, capture_output=True, text=True, check=False
+    ).stdout.splitlines()
+
+    active = {}
+    for l in active_lines:
+        parts = l.split(":")
+        if len(parts) >= 2:
+            active[parts[0]] = parts[1]  # NAME -> DEVICE
+
+    # Build data for template
+    return [{"name": n, "active": n in active, "device": active.get(n)} for n in saved]
+
 @app.context_processor
 def inject_hostname():
     return {"hostname": socket.gethostname()}
@@ -38,24 +68,28 @@ def inject_hostname():
 def wifi():
     try:
         if request.method == 'POST':
-            ssid = request.form['ssid']
-            password = request.form['password']
+            ssid = request.form['ssid'].strip()
+            password = request.form['password'].strip()
             log(f"📥 Received credentials: SSID='{ssid}'")
-            with open("/etc/wpa_supplicant/wpa_supplicant.conf", "w") as f:
-                f.write(f'''
-ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
-update_config=1
-country=US
 
-network={{
-    ssid="{ssid}"
-    psk="{password}"
-}}
-''')
-            os.system("sync")
-            log("✅ Wi‑Fi credentials written and synced")
+            # Delete old profile if exists
+            os.system(f"nmcli connection delete '{ssid}' 2>/dev/null")
+
+            # Add a new Wi-Fi connection
+            os.system(f"nmcli connection add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}'")
+            os.system(f"nmcli connection modify '{ssid}' 802-11-wireless.mode infrastructure wifi-sec.key-mgmt wpa-psk")
+            os.system(f"nmcli connection modify '{ssid}' wifi-sec.psk '{password}' connection.autoconnect yes")
+
+            # Switch from Hotspot to this network
+            os.system("nmcli connection down Hotspot 2>/dev/null")
+            os.system("nmcli radio wifi on")
+            os.system(f"nmcli connection up '{ssid}' 2>/dev/null")
+
+            log("✅ Wi-Fi connection created via nmcli and activation attempted")
             return redirect(url_for('confirmation'))
-        return render_template('index.html')
+
+        networks = get_configured_networks()
+        return render_template('index.html', networks=networks)
     except Exception:
         log("❌ Exception in `/` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
