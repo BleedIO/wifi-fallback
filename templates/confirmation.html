@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Confirmation | BleedIO Tech{% endblock %}
+{% block content %}
+  <h2>✅ Wi‑Fi credentials saved</h2>
+  <p>Press <strong>Reboot</strong> to apply changes. The device will disconnect during reboot.</p>
+
+  <form method="post" action="/cancel" style="margin-top:12px;">
+    <button type="submit"
+            style="padding:10px 16px; background:#1976d2; color:#fff; border:0; border-radius:8px; font-size:16px; cursor:pointer;">
+      🔁 Stop Hotspot
+    </button>
+  </form>
+
+  <form method="post" action="/reboot" style="margin-top:12px;">
+    <button type="submit"
+            style="padding:10px 16px; background:#1976d2; color:#fff; border:0; border-radius:8px; font-size:16px; cursor:pointer;">
+      🔁 Reboot Now
+    </button>
+  </form>
+
+  <p style="margin-top:8px;"><a href="/">← Back</a></p>
+{% endblock %}

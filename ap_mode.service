@@ -1,12 +1,23 @@
 [Unit]
-Description=Fallback WiFi AP Mode
-After=network.target
+Description=Wi-Fi Fallback AP Mode with Webserver
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/bash /opt/wifi-fallback/ap_mode.sh
+Type=simple
+WorkingDirectory=/opt/wifi-fallback
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/opt/wifi-fallback/ap_mode.sh
+# Kill webserver cleanly when stopping/restarting the service:
+ExecStop=/bin/bash -lc "pkill -f '/opt/wifi-fallback/webserver.py' || true"
+# Make sure systemd doesn’t think it failed just because we restart our child:
+SuccessExitStatus=0 SIGTERM
+
 Restart=always
-RestartSec=600
+RestartSec=10
+User=root
+# Helpful while debugging starts:
+TimeoutStartSec=120
 
 [Install]
 WantedBy=multi-user.target
-

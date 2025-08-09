@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}BleedIO Tech{% endblock %}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin:0; background:#f4f6f8; }
+    .topbar {
+      background:#0b4aa2; color:#fff; padding:14px 18px;
+      display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    }
+    .brand { font-weight:700; letter-spacing:.2px; }
+    .device { opacity:.9 }
+    .nav a {
+      color:#fff; text-decoration:none; padding:6px 10px; border-radius:6px;
+      display:inline-block; margin-right:6px; background:rgba(255,255,255,0.12)
+    }
+    .nav a:hover { background:rgba(255,255,255,0.22) }
+    .content {
+      max-width: 640px; margin: 28px auto; background:#fff; padding:24px 28px;
+      border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.08);
+    }
+    .logo { height:28px; vertical-align:middle; margin-right:10px }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <!-- optional logo -->
+    <!-- <img src="{{ url_for('static', filename='bleedio-logo.png') }}" class="logo" alt="BleedIO Tech" /> -->
+    <div class="brand">BleedIO Tech</div>
+    <div class="device">Device: <strong>{{ hostname }}</strong></div>
+    <div class="nav">
+      <a href="/">Wi‑Fi Setup</a>
+      <a href="/confirmation">Commands</a>
+      <a href="/status">View gateway status</a>
+      <a href="/upload">Upload .deb</a>
+    </div>
+  </div>
+
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

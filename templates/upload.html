@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Upload & Install .deb | BleedIO Tech{% endblock %}
+{% block content %}
+  <h2>Upload & Install .deb</h2>
+  <p>Select a Debian package to upload and install on this device.</p>
+
+  <form method="post" enctype="multipart/form-data" style="margin-top:12px;">
+    <input type="file" name="package" accept=".deb" required
+           style="padding:10px; border:1px solid #ccc; border-radius:8px; font-size:16px;">
+    <div style="margin-top:10px;">
+      <button type="submit"
+              style="padding:10px 16px; background:#1976d2; color:#fff; border:0; border-radius:8px; font-size:16px; cursor:pointer;">
+        ⬆️ Upload & Install
+      </button>
+    </div>
+  </form>
+
+  {% if error %}
+    <p style="color:#d32f2f; margin-top:12px;">{{ error }}</p>
+  {% endif %}
+
+  {% if filename %}
+    <h3 style="margin-top:18px;">Result for {{ filename }}</h3>
+    <pre style="white-space:pre-wrap; background:#111; color:#eee; padding:12px; border-radius:8px;">{{ output }}</pre>
+  {% endif %}
+{% endblock %}

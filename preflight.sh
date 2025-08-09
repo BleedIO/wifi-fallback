@@ -28,3 +28,10 @@ else
     echo "✅ /run/systemd has enough space."
 fi
 
+sudo apt update
+sudo apt install python3-pip -y
+sudo pip3 install flask --break-system-packages
+sudo pip3 install waitress --break-system-packages
+
+
+
