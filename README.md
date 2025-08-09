@@ -1,6 +1,6 @@
 This package creates the http portal on raspberry when it doesn't / can't see the wifi it can connect.
 
-Install the package, reboot, go for http://10.24.0.1
+Install the package, reboot, connect to the wifi ssid "bleedio-{hostname}" (default password is bleedio12), go for http://10.24.0.1
 
 You can add the wifi credentials and install deb package
 
@@ -16,3 +16,7 @@ sudo dpkg -i packaging/wifi-fallback_0.4.0_$(dpkg --print-architecture).deb
 
 # if deps missing:
 sudo apt -f -y install
+
+# next version
+1. password protection for the admin page
+2. save password for the admin page
