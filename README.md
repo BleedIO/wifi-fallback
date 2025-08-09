@@ -3,6 +3,7 @@ Install the package, reboot, go for http://10.24.0.1
 You can add the wifi credentials and install deb package
 The status page is customizable and currently used for http://Bleedio.com readers for locMESH
 
+#build deb package
 cd /opt/wifi-fallback
 chmod +x packaging/build.sh
 VERSION=0.4.0 packaging/build.sh
