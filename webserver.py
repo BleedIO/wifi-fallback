@@ -3,6 +3,7 @@
 from flask import Flask, render_template, request, redirect, url_for
 import os
 import sys
+import json
 import traceback
 from waitress import serve
 import socket
@@ -106,14 +107,34 @@ def confirmation():
 #     print("Hotspot stopped. You can now close this page.")  # to server stdout/log
 #     return redirect(url_for('confirmation'))
 
+
 @app.route('/status')
 def status():
-    log("📡 Status page requested.")
-    result = subprocess.run(
-        ["systemctl", "status", "rssi-gatewayapi.service", "--no-pager"],
-        capture_output=True, text=True, check=False
-    )
-    return render_template('status.html', status=result.stdout)
+    try:
+        result = subprocess.run(
+            ["systemctl", "status", "rssi-gatewayapi"],
+            capture_output=True, text=True
+        )
+
+        # Read config.json if exists
+        config_path = "/etc/rssi-gatewayapi/config.json"
+        config_data = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    config_data = json.load(f)
+            except Exception as e:
+                config_data = {"error": f"Failed to read config.json: {e}"}
+
+        return render_template(
+            'status.html',
+            status=result.stdout,
+            config=config_data
+        )
+    except Exception:
+        log("❌ Exception in `/status` route:\n" + traceback.format_exc())
+        return "Internal Server Error", 500
+
 
 @app.route('/cancel', methods=['POST'])
 def cancel():

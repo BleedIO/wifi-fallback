@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Service Status | BleedIO Tech{% endblock %}
 {% block content %}
+  <h2>Device Information</h2>
+  {% if config %}
+    <ul style="list-style:none; padding:0;">
+      {% for key, value in config.items() %}
+        <li><strong>{{ key }}:</strong> {{ value }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p style="color:#888;">No config data found.</p>
+  {% endif %}
+
   <h2>rssi-gatewayapi Status</h2>
   <pre style="white-space:pre-wrap; background:#f6f8fa; padding:12px; border-radius:8px; border:1px solid #e5e7eb;">
 {{ status }}
