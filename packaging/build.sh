@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.4.0}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
+VERSION="${VERSION:-0.4.1}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
 ARCH="$(dpkg --print-architecture)"           # arm64 / armhf / amd64, etc.
 STAGE="packaging/deb/${PKG}_${VERSION}_${ARCH}"
 
@@ -43,6 +43,24 @@ CTRL
 cat > "$STAGE/DEBIAN/postinst" <<'POST'
 #!/bin/sh
 set -e
+
+check_dep() {
+    PKG="$1"
+    if ! dpkg-query -W -f='${Status}' "$PKG" 2>/dev/null | grep -q "install ok installed"; then
+        echo "📦 Installing missing dependency: $PKG"
+        apt-get update
+        apt-get install -y "$PKG"
+    fi
+}
+
+# Make sure these are installed
+check_dep python3
+check_dep python3-flask
+check_dep python3-waitress
+check_dep network-manager
+check_dep iproute2
+
+
 # ensure dir + sane perms
 chmod 755 /opt/wifi-fallback || true
 chmod 644 /etc/systemd/system/ap_mode.service || true
