@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.4.1}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
+VERSION="${VERSION:-0.4.2}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
 ARCH="$(dpkg --print-architecture)"           # arm64 / armhf / amd64, etc.
 STAGE="packaging/deb/${PKG}_${VERSION}_${ARCH}"
 
@@ -35,41 +35,60 @@ Priority: optional
 Architecture: ${ARCH}
 Maintainer: BleedIO Tech <connect@bleedio.com>
 Depends: python3, python3-flask, python3-waitress, network-manager, iproute2
+# Pre-Depends is usually NOT needed; uncomment only if you must ensure packages are configured before unpack.
+# Pre-Depends: python3, network-manager, iproute2
 Description: Wi-Fi fallback AP + web portal for headless setup
  Provides a local AP and a Flask-based portal to enter Wi‑Fi credentials, status, and uploading .deb packages.
 CTRL
 
-# maintainer scripts
-cat > "$STAGE/DEBIAN/postinst" <<'POST'
+# --- preinst (dependency check happens BEFORE unpack) ---
+cat > "$STAGE/DEBIAN/preinst" <<'PREINST'
 #!/bin/sh
 set -e
 
-check_dep() {
-    PKG="$1"
-    if ! dpkg-query -W -f='${Status}' "$PKG" 2>/dev/null | grep -q "install ok installed"; then
-        echo "📦 Installing missing dependency: $PKG"
-        apt-get update
-        apt-get install -y "$PKG"
-    fi
+need() {
+  PKG="$1"
+  if ! dpkg-query -W -f='${Status}' "$PKG" 2>/dev/null | grep -q "install ok installed"; then
+    echo "Missing required dependency: $PKG"
+    return 1
+  fi
+  return 0
 }
 
-# Make sure these are installed
-check_dep python3
-check_dep python3-flask
-check_dep python3-waitress
-check_dep network-manager
-check_dep iproute2
+MISSING=0
+for p in python3 python3-flask python3-waitress network-manager iproute2; do
+  if ! need "$p"; then
+    MISSING=1
+  fi
+done
 
+if [ "$MISSING" -ne 0 ]; then
+  echo "Error: dependencies are not installed."
+  echo "If you used 'dpkg -i', run:    sudo apt-get -f install"
+  echo "Or install with apt directly:  sudo apt install ./<this.deb>"
+  # OPTIONAL (NOT RECOMMENDED): auto-fix here (can conflict with apt locks)
+  # apt-get update && apt-get -y -f install || true
+  exit 1
+fi
 
+exit 0
+PREINST
+chmod 755 "$STAGE/DEBIAN/preinst"
+
+# postinst: — only service setup
+cat > "$STAGE/DEBIAN/postinst" <<'POST'
+#!/bin/sh
+set -e
 # ensure dir + sane perms
 chmod 755 /opt/wifi-fallback || true
 chmod 644 /etc/systemd/system/ap_mode.service || true
-# pick one starter (NetworkManager needed)
+
 systemctl daemon-reload
 systemctl enable ap_mode.service >/dev/null 2>&1 || true
 systemctl restart ap_mode.service || true
 exit 0
 POST
+
 chmod 755 "$STAGE/DEBIAN/postinst"
 
 cat > "$STAGE/DEBIAN/prerm" <<'PRERM'
