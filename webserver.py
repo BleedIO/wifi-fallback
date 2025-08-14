@@ -74,6 +74,8 @@ def wifi():
             log(f"📥 Received credentials: SSID='{ssid}'")
 
             # Delete old profile if exists
+            os.system(f"mount -o remount,rw / ")  # in case root is read-only
+            os.system(f"systemctl restart NetworkManager")  # in case root is read-only
             os.system(f"nmcli connection delete '{ssid}' 2>/dev/null")
 
             # Add a new Wi-Fi connection
@@ -82,7 +84,7 @@ def wifi():
             os.system(f"nmcli connection modify '{ssid}' wifi-sec.psk '{password}' connection.autoconnect yes")
 
             # Switch from Hotspot to this network
-            os.system("nmcli connection down Hotspot 2>/dev/null")
+            os.system("nmcli connection down bleedio-ap 2>/dev/null")
             os.system("nmcli radio wifi on")
             os.system(f"nmcli connection up '{ssid}' 2>/dev/null")
 
@@ -94,19 +96,6 @@ def wifi():
     except Exception:
         log("❌ Exception in `/` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
-
-@app.route('/confirmation')
-def confirmation():
-    log("✅ Confirmation page displayed.")
-    return render_template('confirmation.html')
-
-# @app.route('/cancel')
-# def cancel():
-#     log("❌ Cancel requested. Shutting down AP...")
-#     os.system("nmcli connection down Hotspot")
-#     print("Hotspot stopped. You can now close this page.")  # to server stdout/log
-#     return redirect(url_for('confirmation'))
-
 
 @app.route('/status')
 def status():
@@ -135,6 +124,10 @@ def status():
         log("❌ Exception in `/status` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
 
+@app.route('/confirmation')
+def confirmation():
+    log("✅ Confirmation page displayed.")
+    return render_template('confirmation.html')
 
 @app.route('/cancel', methods=['POST'])
 def cancel():
@@ -146,6 +139,7 @@ def cancel():
 @app.route('/reboot', methods=['GET'])
 def reboot_get():
     return "Method Not Allowed", 405
+
 @app.route('/reboot', methods=['POST'])
 def reboot():
     log("🔁 Reboot triggered from web")

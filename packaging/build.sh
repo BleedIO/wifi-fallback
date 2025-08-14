@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.4.5}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
+VERSION="${VERSION:-0.4.6}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
 ARCH="$(dpkg --print-architecture)"           # arm64 / armhf / amd64, etc.
 STAGE="packaging/deb/${PKG}_${VERSION}_${ARCH}"
 
@@ -18,7 +18,7 @@ cp -a ap_mode.sh webserver.py preflight.sh start.sh watch_ip.sh "$STAGE/opt/wifi
 cp -a static "$STAGE/opt/wifi-fallback/"
 cp -a templates "$STAGE/opt/wifi-fallback/"
 # install the unit into the correct system path
-cp -a ap_mode.service "$STAGE/etc/systemd/system/ap_mode.service"
+cp -a ap_mode.service "$STAGE/etc/systemd/system/wifi-fallback.service"
 
 # perms
 chmod 755 "$STAGE/opt/wifi-fallback"/ap_mode.sh
@@ -82,11 +82,11 @@ cat > "$STAGE/DEBIAN/postinst" <<'POST'
 set -e
 # ensure dir + sane perms
 chmod 755 /opt/wifi-fallback || true
-chmod 644 /etc/systemd/system/ap_mode.service || true
+chmod 644 /etc/systemd/system/wifi-fallback.service || true
 
 systemctl daemon-reload
-systemctl enable ap_mode.service >/dev/null 2>&1 || true
-systemctl restart ap_mode.service || true
+systemctl enable wifi-fallback.service >/dev/null 2>&1 || true
+systemctl restart wifi-fallback.service || true
 exit 0
 POST
 
@@ -95,7 +95,7 @@ chmod 755 "$STAGE/DEBIAN/postinst"
 cat > "$STAGE/DEBIAN/prerm" <<'PRERM'
 #!/bin/sh
 set -e
-systemctl stop ap_mode.service >/dev/null 2>&1 || true
+systemctl stop wifi-fallback.service >/dev/null 2>&1 || true
 exit 0
 PRERM
 chmod 755 "$STAGE/DEBIAN/prerm"
@@ -104,8 +104,8 @@ cat > "$STAGE/DEBIAN/postrm" <<'POSTRM'
 #!/bin/sh
 set -e
 if [ "$1" = "purge" ]; then
-  systemctl disable ap_mode.service >/dev/null 2>&1 || true
-  rm -f /etc/systemd/system/ap_mode.service
+  systemctl disable wifi-fallback.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/wifi-fallback.service
   systemctl daemon-reload || true
 fi
 exit 0
