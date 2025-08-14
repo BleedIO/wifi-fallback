@@ -68,12 +68,20 @@ check_wifi() {
             return 0
         fi
 
+        #if profile not existing, create and start hotspot
+        if ! nmcli connection show | grep -q "^Hotspot\s"; then
+            log "📡 Hotspot profile not found — creating it"
+            start_ap
+        fi
+
+        WIFI_STATE=$(nmcli -t -f DEVICE,TYPE,STATE dev | grep "^$AP_IFACE:" | cut -d: -f3)
+
         # If disconnected, try to re-activate the hotspot profile right away
         if [[ "$WIFI_STATE" == "disconnected" ]]; then
             log "📡 $AP_IFACE is disconnected — bringing up Hotspot"
-            nmcli connection up Hotspot 2>/dev/null || true
+            nmcli connection up Hotspot 2>$LOGFILE || true
         fi        
-        
+
         sleep 5
     done
 
@@ -87,20 +95,25 @@ check_wifi() {
 start_ap() {
     log "📡 Starting AP Mode: $AP_SSID"
 
-    nmcli device set "$AP_IFACE" managed yes
-    nmcli radio wifi on
-    nmcli dev wifi hotspot ifname "$AP_IFACE" ssid "$AP_SSID" password "$AP_PASS"
-    nmcli connection modify Hotspot 802-11-wireless.hidden no
-    nmcli connection up Hotspot
+    sudo mount -o remount,rw /
+    sudo mount -o remount,size=64M /run
+
+    nmcli device set "$AP_IFACE" managed yes 2>>$LOGFILE
+    nmcli radio wifi on 2>>$LOGFILE
+    nmcli dev wifi hotspot ifname "$AP_IFACE" ssid "$AP_SSID" password "$AP_PASS" 2>>$LOGFILE
+    nmcli connection modify Hotspot 802-11-wireless.hidden no 2>>$LOGFILE
+    nmcli connection up Hotspot 2>>$LOGFILE
 
     sleep 2
 }
 
 # Main loop
 while true; do
+    
     check_wifi
     if [[ $? -ne 0 ]]; then
-        start_ap
+        start_ap 
+        log "🔄 AP Mode started: $AP_SSID"
     fi
 
     CURRENT_IP=$(get_ip)

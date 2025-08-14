@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.4.2}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
+VERSION="${VERSION:-0.4.5}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
 ARCH="$(dpkg --print-architecture)"           # arm64 / armhf / amd64, etc.
 STAGE="packaging/deb/${PKG}_${VERSION}_${ARCH}"
 
@@ -27,6 +27,9 @@ find "$STAGE/opt/wifi-fallback/static" -type f -exec chmod 644 {} +
 find "$STAGE/opt/wifi-fallback/templates" -type f -exec chmod 644 {} +
 
 # control metadata
+#Pre-Depends: python3, network-manager, iproute2
+#Pre-Depends: python3, python3-flask, python3-waitress, network-manager, iproute2
+
 cat > "$STAGE/DEBIAN/control" <<CTRL
 Package: ${PKG}
 Version: ${VERSION}
@@ -35,8 +38,6 @@ Priority: optional
 Architecture: ${ARCH}
 Maintainer: BleedIO Tech <connect@bleedio.com>
 Depends: python3, python3-flask, python3-waitress, network-manager, iproute2
-# Pre-Depends is usually NOT needed; uncomment only if you must ensure packages are configured before unpack.
-# Pre-Depends: python3, network-manager, iproute2
 Description: Wi-Fi fallback AP + web portal for headless setup
  Provides a local AP and a Flask-based portal to enter Wi‑Fi credentials, status, and uploading .deb packages.
 CTRL
