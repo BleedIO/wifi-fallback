@@ -161,6 +161,7 @@ while true; do
         if [[ ! -f "$HOTSPOT_TIMER_FILE" ]]; then
             date +%s > "$HOTSPOT_TIMER_FILE"
             log "🕐 Hotspot active — timer started"
+            sleep 60 #check every 60 seconds
         else
             NOW=$(date +%s)
             STARTED=$(cat "$HOTSPOT_TIMER_FILE")
@@ -182,11 +183,13 @@ while true; do
 
                 # Optional: force connect if known SSID exists
                 # nmcli device wifi connect "YourSSID" password "yourpassword"
+
+                sleep 10
             fi
         fi
     else
         rm -f /tmp/wifi-fallback-hotspot-since
     fi
 
-    sleep 60  # Check every 30 seconds
+    #sleep 60  # Check every 30 seconds
 done

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.4.6}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
+VERSION="${VERSION:-0.4.7}"                   # or inject via: VERSION=0.4.0 packaging/build.sh
 ARCH="$(dpkg --print-architecture)"           # arm64 / armhf / amd64, etc.
 STAGE="packaging/deb/${PKG}_${VERSION}_${ARCH}"
 
