@@ -189,6 +189,7 @@ while true; do
         fi
     else
         rm -f /tmp/wifi-fallback-hotspot-since
+        sleep 60 #check every 60 seconds
     fi
 
     #sleep 60  # Check every 30 seconds
