@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/wifi-fallback
 Environment="PYTHONUNBUFFERED=1"
+ExecStartPre=/bin/sleep 120
 ExecStart=/opt/wifi-fallback/ap_mode.sh
 # Kill webserver cleanly when stopping/restarting the service:
 ExecStop=/bin/bash -lc "pkill -f '/opt/wifi-fallback/webserver.py' || true"
