@@ -1,6 +1,6 @@
 # webserver.py
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response
 import os
 import sys
 import json
@@ -10,6 +10,7 @@ import socket
 import subprocess  # ✅ Add this at the top with other imports
 from werkzeug.utils import secure_filename
 from functools import wraps  # ✅ for auth decorator
+import secrets   # ✅ for per-request realm nonce
 
 # ================= AUTH =================
 # We try to load password from /etc/rssi-gatewayapi/config.json first.
@@ -17,35 +18,29 @@ from functools import wraps  # ✅ for auth decorator
 #   1. config.json["password"] (device config)
 #   2. $SERVER_PASSWORD env var
 #   3. hardcoded default "bleedio-x52"
+# Password source: config.json (later we’ll swap in config.json logic, but keeping env/default for now)
+SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 
-def load_server_password():
-    # 1. Try config.json from the device
-    cfg_path = "/etc/rssi-gatewayapi/config.json"
-    try:
-        if os.path.exists(cfg_path):
-            with open(cfg_path, "r") as f:
-                cfg = json.load(f)
-                pw = cfg.get("password") or cfg.get("admin_password") or cfg.get("web_password")
-                if pw and isinstance(pw, str) and pw.strip():
-                    return pw.strip()
-    except Exception as e:
-        # don't crash server just because config read failed
-        print(f"[auth] failed to read password from {cfg_path}: {e}")
+def _auth_challenge():
+    """
+    Return a 401 with:
+    - randomized realm so browser treats it as a "new" credential space
+    - headers to disable caching
+    This is used for both 'please log in' and 'log out'.
++    """
+    realm_nonce = secrets.token_hex(4)
 
-    # 2. Env override
-    env_pw = os.getenv("SERVER_PASSWORD", "").strip()
-    if env_pw:
-        return env_pw
-
-    # 3. Final fallback default
-    return "bleedio-x52"
-
-SERVER_PASSWORD = load_server_password()
+    resp = make_response(jsonify({"error": "Unauthorized"}), 401)
+    resp.headers["WWW-Authenticate"] = f'Basic realm="BleedIO AP {realm_nonce}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 def require_auth(view_fn):
     """
-    Decorator for routes that need auth.
-    Uses HTTP Basic Auth with username 'admin' and password from SERVER_PASSWORD.
+    Decorator for password-protected routes.
+    - Forces re-auth on every load by not allowing cached auth headers to "stick" in cache.
+    - Adds no-store headers to successful responses.
     """
     @wraps(view_fn)
     def wrapper(*args, **kwargs):
@@ -53,15 +48,32 @@ def require_auth(view_fn):
 
         # Check provided creds
         if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
-            return view_fn(*args, **kwargs)
+            # Call the real view
+            inner_resp = view_fn(*args, **kwargs)
 
-        # Ask browser for credentials
-        return (
-            jsonify({"error": "Unauthorized"}),
-            401,
-            {"WWW-Authenticate": 'Basic realm="BleedIO AP Setup"'}
-        )
+            # Wrap it so we can force no-cache headers on SUCCESS too
+            if isinstance(inner_resp, tuple):
+                # could be (body, status) or (body, status, headers)
+                resp = make_response(*inner_resp)
+            else:
+                resp = make_response(inner_resp)
+
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            return resp
+
+        # Not authenticated (or wrong creds) → challenge
+        return _auth_challenge()
     return wrapper
+
+@app.route('/logout', methods=['GET'])
+def logout():
+    """
+    Force browser to "forget" credentials by returning an auth challenge
+    with a new realm. After this, protected pages will reprompt.
+    """
+    log("👋 Logout requested via /logout")
+    return _auth_challenge()
 # ================= END AUTH =================
 
 LOG_FILE = "/tmp/wifi-fallback-web.log"
