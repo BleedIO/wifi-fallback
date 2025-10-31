@@ -23,8 +23,8 @@ SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 
 def _auth_challenge():
     """
-    Standard 401 challenge.
-    Returns a response that forces the browser to prompt again next time.
+    Send a 401 with a fresh realm so the browser will ask for creds.
+    Used when hitting protected pages without valid auth.
     """
     realm_nonce = secrets.token_hex(4)
 
@@ -34,14 +34,16 @@ def _auth_challenge():
     resp.headers["Pragma"] = "no-cache"
     return resp
 
-def _logout_with_redirect():
+def _logout_page():
     """
-    Special-case logout:
-    - still returns 401 with a fresh realm (so browser forgets creds),
-    - but body is an HTML page that immediately meta-refreshes to "/".
-    """
-    realm_nonce = secrets.token_hex(4)
+    Return a normal 200 OK page that:
+    - Immediately refreshes to "/"
+    - Attempts to 'poison' cached basic auth creds by loading a resource
+      with fake credentials in the URL (works in most desktop browsers).
 
+    We intentionally do NOT return 401 here because that would trigger
+    the browser login popup you complained about.
+    """
     html = """
     <!DOCTYPE html>
     <html>
@@ -56,6 +58,7 @@ def _logout_with_redirect():
             text-align:center; line-height:1.4;
           }
           .small { font-size:13px; color:#666; margin-top:12px; }
+          img { display:none; }
         </style>
       </head>
       <body>
@@ -63,12 +66,21 @@ def _logout_with_redirect():
           <div>Signing you out…</div>
           <div class="small">Redirecting to status page</div>
         </div>
+
+        <!--
+          Auth poison attempts (best-effort):
+          We try to "log in" with bogus creds to protected routes so
+          the browser forgets the good creds it cached.
+          We hide them with display:none.
+        -->
+        <img src="//logout:logout@127.0.0.1/wifi" alt="" />
+        <img src="//logout:logout@localhost/wifi" alt="" />
       </body>
     </html>
     """
-    resp = make_response(html, 401)
+
+    resp = make_response(html, 200)
     resp.headers["Content-Type"] = "text/html; charset=utf-8"
-    resp.headers["WWW-Authenticate"] = f'Basic realm="BleedIO AP {realm_nonce}"'
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -166,7 +178,9 @@ def inject_hostname():
     }
 
 @app.route('/')
+
 def status():
+    log("✅ index page displayed.")
     try:
         result = subprocess.run(
             ["systemctl", "status", "rssi-gatewayapi"],
@@ -199,11 +213,12 @@ def logout():
     with a new realm. After this, protected pages will reprompt.
     """
     log("👋 Logout requested via /logout")
-    return _logout_with_redirect()
+    return _logout_page()
 
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
 def wifi():
+    log("✅ wifi page displayed.")
     try:
         if request.method == 'POST':
             ssid = request.form['ssid'].strip()
