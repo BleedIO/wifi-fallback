@@ -1,6 +1,6 @@
 # webserver.py
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, g
 import os
 import sys
 import json
@@ -97,6 +97,8 @@ def require_auth(view_fn):
 
         # Check provided creds
         if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
+            # mark this request as authenticated for the template/banner
+            g.is_authenticated = True
             # Call the real view
             inner_resp = view_fn(*args, **kwargs)
 
@@ -171,17 +173,19 @@ def get_configured_networks():
 @app.context_processor
 def inject_hostname():
     open_mode = (SERVER_PASSWORD.strip() == "" or SERVER_PASSWORD.strip().lower() in ["none", "open"])
+    is_auth = getattr(g, "is_authenticated", False)
     return {
         "hostname": socket.gethostname(),
-        "auth_banner": True,
+        "auth_banner": is_auth,
         "auth_open": open_mode,
     }
 
 @app.route('/')
-
 def status():
     log("✅ index page displayed.")
     try:
+        # public route → explicitly mark unauthenticated
+        g.is_authenticated = False
         result = subprocess.run(
             ["systemctl", "status", "rssi-gatewayapi"],
             capture_output=True, text=True
@@ -213,6 +217,8 @@ def logout():
     with a new realm. After this, protected pages will reprompt.
     """
     log("👋 Logout requested via /logout")
+    # treat logout page itself as unauthenticated
+    g.is_authenticated = False
     return _logout_page()
 
 @app.route('/wifi', methods=['GET', 'POST'])
