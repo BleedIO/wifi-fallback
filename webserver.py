@@ -1,6 +1,6 @@
 # webserver.py
 
-from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, g
+from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, g, session
 import os
 import sys
 import json
@@ -21,75 +21,23 @@ import secrets   # ✅ for per-request realm nonce
 # Password source: config.json (later we’ll swap in config.json logic, but keeping env/default for now)
 SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 AUTH_REALM = "BleedIO AP"
+global LOGGED_OUT  
 LOGGED_OUT = False
+CHECK_AUTH = False
 
 # This nonce is our "session generation". If it changes, all previous auth headers become invalid.
 AUTH_NONCE = secrets.token_hex(8)
 
-def _current_nonce():
-    global AUTH_NONCE
-    return AUTH_NONCE
-
-def _rotate_nonce():
-    # called on logout
-    global AUTH_NONCE
-    AUTH_NONCE = secrets.token_hex(8)
-    return AUTH_NONCE
-
-
 def _auth_challenge():
     """
-    Send a 401 with a fresh realm so the browser will ask for creds.
-    Used when hitting protected pages without valid auth.
+    Instead of HTTP Basic 401 + WWW-Authenticate (popup),
+    send the user to our /login form and remember where they were going.
     """
-    realm_nonce = secrets.token_hex(4)
-
-    resp = make_response(jsonify({"error": "Unauthorized"}), 401)
-    resp.headers["WWW-Authenticate"] = f'Basic realm="{AUTH_REALM}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
-
-def _logout_challenge():
-    """
-    First phase of logout:
-    Return 401 with the SAME realm, but tell user to press OK with blank creds.
-    Browser will overwrite its cached creds for this realm with the blank/garbage.
-    After they do that, we redirect them to /logout?done=1 which shows final page.
-    """
-    html = """
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Logout</title>
-        <style>
-          body { font-family: Arial, sans-serif; background:#f4f6f8; padding:40px; color:#333; }
-          .box {
-            max-width:420px; margin:40px auto; background:#fff; border-radius:12px;
-            box-shadow:0 4px 12px rgba(0,0,0,0.08); padding:24px 28px;
-            line-height:1.4;
-          }
-          .title { font-size:16px; font-weight:bold; margin-bottom:8px; }
-          .small { font-size:13px; color:#666; margin-top:12px; }
-        </style>
-      </head>
-      <body>
-        <div class="box">
-          <div class="title">Logging you out…</div>
-          <div>When prompted, submit empty username and password.<br/>
-          This clears the saved login for this device.</div>
-          <div class="small">After that you’ll be redirected to status page.</div>
-        </div>
-      </body>
-    </html>
-    """
-    # Note: still 401, but with HTML body (not JSON). Browser may show prompt first.
-    resp = make_response(html, 401)
-    resp.headers["Content-Type"] = "text/html; charset=utf-8"
-    resp.headers["WWW-Authenticate"] = f'Basic realm="{AUTH_REALM}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["Pragma"] = "no-cache"
-    return resp
+    next_url = request.path or "/"
+    # mark not-authenticated
+    g.is_authenticated = False
+    # no browser popup anymore, just redirect
+    return redirect(url_for("login", next=next_url))
 
 def _logout_page():
     """
@@ -144,48 +92,32 @@ def _logout_page():
 
 def require_auth(view_fn):
     """
-    Decorator for password-protected routes.
-    - Forces re-auth on every load by not allowing cached auth headers to "stick" in cache.
-    - Adds no-store headers to successful responses.
+    New auth wrapper:
+    - trust Flask session cookie instead of HTTP Basic.
+    - if not logged in, bounce to /login (no browser popup).
     """
     @wraps(view_fn)
     def wrapper(*args, **kwargs):
-        auth = request.authorization
+        logged_in = session.get("logged_in", False)
+
         print(
-            "Auth attempt:", auth,
-            g.is_authenticated if hasattr(g, "is_authenticated") else "N/A",
-            "LOGGED_OUT:", LOGGED_OUT
+            "[require_auth] logged_in:",
+            logged_in,
+            "SERVER_PASSWORD set:",
+            bool(SERVER_PASSWORD),
         )
 
-        global LOGGED_OUT
-
-        # 1. Check if creds are valid
-        good = False
-        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
-            good = True
-
-        if good:
-            # successful login overrides the logged-out lock
-            LOGGED_OUT = False
+        if logged_in:
+            # mark for templates
             g.is_authenticated = True
 
             inner_resp = view_fn(*args, **kwargs)
-
-            if isinstance(inner_resp, tuple):
-                resp = make_response(*inner_resp)
-            else:
-                resp = make_response(inner_resp)
-
+            resp = make_response(inner_resp) if not isinstance(inner_resp, tuple) else make_response(*inner_resp)
             resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             resp.headers["Pragma"] = "no-cache"
             return resp
 
-        # 2. If creds are not good, and we've explicitly logged out, block hard
-        if LOGGED_OUT:
-            g.is_authenticated = False
-            return _auth_challenge()
-
-        # 3. Otherwise just normal challenge for missing/wrong creds
+        # not logged in -> redirect to /login
         g.is_authenticated = False
         return _auth_challenge()
 
@@ -202,6 +134,7 @@ def log(msg):
 log("🔧 Starting Wi-Fi Config Web Server...")
 
 app = Flask(__name__, template_folder='templates')
+app.secret_key = secrets.token_hex(16)  # needed for Flask session cookies
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB cap
 ALLOWED_EXTENSIONS = {'deb'}
 
@@ -284,12 +217,65 @@ def status():
         log("❌ Exception in `/` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
     
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """
+    Simple username/password form login.
+    Username is fixed to 'admin', password is SERVER_PASSWORD.
+    On success we set session['logged_in']=True and redirect.
+    """
+    # already logged in? go to next / wifi
+    if session.get("logged_in"):
+        return redirect(request.args.get("next") or url_for("wifi"))
+
+    if request.method == 'POST':
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
+
+        good = (
+            username == "admin" and
+            password == SERVER_PASSWORD
+        )
+
+        print(
+            "[/login] attempt:",
+            {"username": username, "password_len": len(password)},
+            "good:", good
+        )
+
+        if good:
+            session["logged_in"] = True
+            g.is_authenticated = True
+            # reset old flags so templates don't show "logged out" banner
+            global LOGGED_OUT, CHECK_AUTH
+            LOGGED_OUT = False
+            CHECK_AUTH = False
+            return redirect(request.args.get("next") or url_for("wifi"))
+
+        # bad creds → show form again with error
+        # (we rely on login.html template to show {{ error }})
+        g.is_authenticated = False
+        return render_template('login.html', error="Invalid credentials")
+
+    # GET: show login form
+    g.is_authenticated = False
+    return render_template('login.html', error=None)
+
 @app.route('/logout', methods=['GET'])
 def logout():
     log("👋 Logout requested via /logout")
-    global LOGGED_OUT
+    # clear cookie session and mark not-auth
+    session.clear()
+    g.is_authenticated = False
+    return redirect(url_for('status'))
+
+@app.route('/logout_basic', methods=['GET'])
+def logout_basic():
+    log("👋 Logout requested via /logout")
+    global LOGGED_OUT, CHECK_AUTH
     LOGGED_OUT = True  # lock down protected routes until fresh auth
     # treat logout page itself as unauthenticated
+    CHECK_AUTH = True  #force check
     g.is_authenticated = False
     return _logout_page()
 
