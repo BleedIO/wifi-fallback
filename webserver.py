@@ -152,9 +152,9 @@ def require_auth(view_fn):
     def wrapper(*args, **kwargs):
         auth = request.authorization
         print(
-            "Auth attempt:",
-            auth,
+            "Auth attempt:", auth,
             g.is_authenticated if hasattr(g, "is_authenticated") else "N/A",
+            "LOGGED_OUT:", LOGGED_OUT
         )
 
         global LOGGED_OUT
