@@ -21,6 +21,7 @@ import secrets   # ✅ for per-request realm nonce
 # Password source: config.json (later we’ll swap in config.json logic, but keeping env/default for now)
 SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 AUTH_REALM = "BleedIO AP"
+LOGGED_OUT = False
 
 # This nonce is our "session generation". If it changes, all previous auth headers become invalid.
 AUTH_NONCE = secrets.token_hex(8)
@@ -156,27 +157,41 @@ def require_auth(view_fn):
             g.is_authenticated if hasattr(g, "is_authenticated") else "N/A",
         )
 
-        # Check provided creds
+        global LOGGED_OUT
+
+        # If we've explicitly logged out, block access until fresh login.
+        # This prevents the "I can still see /wifi after logout" problem.
+        if LOGGED_OUT:
+            g.is_authenticated = False
+            return _auth_challenge()
+
+        # Check provided Basic Auth creds
+        is_ok = False
         if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
-            # mark this request as authenticated for the template/banner
-            g.is_authenticated = True
+            is_ok = True
 
-            # Call the real view
-            inner_resp = view_fn(*args, **kwargs)
+        if not is_ok:
+            # missing/wrong creds -> challenge
+            g.is_authenticated = False
+            return _auth_challenge()
 
-            # Wrap it so we can force no-cache headers on SUCCESS too
-            if isinstance(inner_resp, tuple):
-                resp = make_response(*inner_resp)
-            else:
-                resp = make_response(inner_resp)
+        # creds are valid -> mark request authenticated,
+        # and clear the logged-out lock so session is "live" again
+        LOGGED_OUT = False
+        g.is_authenticated = True
 
-            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            resp.headers["Pragma"] = "no-cache"
-            return resp
+        # Call the real view
+        inner_resp = view_fn(*args, **kwargs)
 
-        # Not authenticated (or wrong creds) → 401 with same realm
-        g.is_authenticated = False
-        return _auth_challenge()
+        # Wrap so we can force no-cache headers on success
+        if isinstance(inner_resp, tuple):
+            resp = make_response(*inner_resp)
+        else:
+            resp = make_response(inner_resp)
+
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        return resp
     return wrapper
 # ================= END AUTH =================
 
@@ -276,14 +291,13 @@ def status():
 def logout():
     log("👋 Logout requested via /logout")
 
-    # Phase 2: after user submitted blank creds and comes back with ?done=1
-    if request.args.get("done") == "1":
-        g.is_authenticated = False
-        return _logout_page()
+    global LOGGED_OUT
+    LOGGED_OUT = True  # lock down protected routes until fresh auth
 
-    # Phase 1: force browser to prompt using SAME REALM and tell user to submit blanks
+    # treat logout page itself as unauthenticated
     g.is_authenticated = False
-    return _logout_challenge()
+
+    return _logout_page()
 
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
