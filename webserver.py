@@ -66,14 +66,6 @@ def require_auth(view_fn):
         return _auth_challenge()
     return wrapper
 
-@app.route('/logout', methods=['GET'])
-def logout():
-    """
-    Force browser to "forget" credentials by returning an auth challenge
-    with a new realm. After this, protected pages will reprompt.
-    """
-    log("👋 Logout requested via /logout")
-    return _auth_challenge()
 # ================= END AUTH =================
 
 LOG_FILE = "/tmp/wifi-fallback-web.log"
@@ -136,6 +128,42 @@ def inject_hostname():
         "auth_open": open_mode,
     }
 
+@app.route('/')
+def status():
+    try:
+        result = subprocess.run(
+            ["systemctl", "status", "rssi-gatewayapi"],
+            capture_output=True, text=True
+        )
+
+        # Read config.json if exists
+        config_path = "/etc/rssi-gatewayapi/config.json"
+        config_data = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    config_data = json.load(f)
+            except Exception as e:
+                config_data = {"error": f"Failed to read config.json: {e}"}
+
+        return render_template(
+            'status.html',
+            status=result.stdout,
+            config=config_data
+        )
+    except Exception:
+        log("❌ Exception in `/` route:\n" + traceback.format_exc())
+        return "Internal Server Error", 500
+    
+@app.route('/logout', methods=['GET'])
+def logout():
+    """
+    Force browser to "forget" credentials by returning an auth challenge
+    with a new realm. After this, protected pages will reprompt.
+    """
+    log("👋 Logout requested via /logout")
+    return _auth_challenge()    
+
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
 def wifi():
@@ -167,33 +195,6 @@ def wifi():
         return render_template('wifi.html', networks=networks)
     except Exception:
         log("❌ Exception in `/wifi` route:\n" + traceback.format_exc())
-        return "Internal Server Error", 500
-
-@app.route('/')
-def status():
-    try:
-        result = subprocess.run(
-            ["systemctl", "status", "rssi-gatewayapi"],
-            capture_output=True, text=True
-        )
-
-        # Read config.json if exists
-        config_path = "/etc/rssi-gatewayapi/config.json"
-        config_data = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path) as f:
-                    config_data = json.load(f)
-            except Exception as e:
-                config_data = {"error": f"Failed to read config.json: {e}"}
-
-        return render_template(
-            'status.html',
-            status=result.stdout,
-            config=config_data
-        )
-    except Exception:
-        log("❌ Exception in `/` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
 
 @app.route('/confirmation')
@@ -265,3 +266,4 @@ if __name__ == '__main__':
 
     log("🚀 Launching Flask app with Waitress on port 80")
     serve(app, host='0.0.0.0', port=80)
+
