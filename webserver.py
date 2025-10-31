@@ -20,6 +20,7 @@ import secrets   # ✅ for per-request realm nonce
 #   3. hardcoded default "bleedio-x52"
 # Password source: config.json (later we’ll swap in config.json logic, but keeping env/default for now)
 SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
+AUTH_REALM = "BleedIO AP"
 
 # This nonce is our "session generation". If it changes, all previous auth headers become invalid.
 AUTH_NONCE = secrets.token_hex(8)
@@ -43,7 +44,48 @@ def _auth_challenge():
     realm_nonce = secrets.token_hex(4)
 
     resp = make_response(jsonify({"error": "Unauthorized"}), 401)
-    resp.headers["WWW-Authenticate"] = f'Basic realm="BleedIO AP {realm_nonce}"'
+    resp.headers["WWW-Authenticate"] = f'Basic realm="{AUTH_REALM}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+def _logout_challenge():
+    """
+    First phase of logout:
+    Return 401 with the SAME realm, but tell user to press OK with blank creds.
+    Browser will overwrite its cached creds for this realm with the blank/garbage.
+    After they do that, we redirect them to /logout?done=1 which shows final page.
+    """
+    html = """
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Logout</title>
+        <style>
+          body { font-family: Arial, sans-serif; background:#f4f6f8; padding:40px; color:#333; }
+          .box {
+            max-width:420px; margin:40px auto; background:#fff; border-radius:12px;
+            box-shadow:0 4px 12px rgba(0,0,0,0.08); padding:24px 28px;
+            line-height:1.4;
+          }
+          .title { font-size:16px; font-weight:bold; margin-bottom:8px; }
+          .small { font-size:13px; color:#666; margin-top:12px; }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <div class="title">Logging you out…</div>
+          <div>When prompted, submit empty username and password.<br/>
+          This clears the saved login for this device.</div>
+          <div class="small">After that you’ll be redirected to status page.</div>
+        </div>
+      </body>
+    </html>
+    """
+    # Note: still 401, but with HTML body (not JSON). Browser may show prompt first.
+    resp = make_response(html, 401)
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
+    resp.headers["WWW-Authenticate"] = f'Basic realm="{AUTH_REALM}"'
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
     return resp
@@ -108,29 +150,22 @@ def require_auth(view_fn):
     @wraps(view_fn)
     def wrapper(*args, **kwargs):
         auth = request.authorization
+        print(
+            "Auth attempt:",
+            auth,
+            g.is_authenticated if hasattr(g, "is_authenticated") else "N/A",
+        )
 
-        # ----- AUTH CHECK -----
-        is_ok = False
-        if auth:
-            # Option A (legacy): username == "admin", password == SERVER_PASSWORD
-            if auth.username == "admin" and auth.password == SERVER_PASSWORD:
-                is_ok = True
-
-            # Option B (new stronger): username carries nonce "<nonce>", password is SERVER_PASSWORD
-            # This lets us invalidate all old logins by rotating AUTH_NONCE.
-            if auth.username == _current_nonce() and auth.password == SERVER_PASSWORD:
-                is_ok = True
-
-        if is_ok:
+        # Check provided creds
+        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
             # mark this request as authenticated for the template/banner
             g.is_authenticated = True
 
             # Call the real view
-            inner_resp = view_fn(*args, **kwargs)            
+            inner_resp = view_fn(*args, **kwargs)
 
             # Wrap it so we can force no-cache headers on SUCCESS too
             if isinstance(inner_resp, tuple):
-                # could be (body, status) or (body, status, headers)
                 resp = make_response(*inner_resp)
             else:
                 resp = make_response(inner_resp)
@@ -139,10 +174,10 @@ def require_auth(view_fn):
             resp.headers["Pragma"] = "no-cache"
             return resp
 
-        # Not authenticated (or wrong creds) → challenge
+        # Not authenticated (or wrong creds) → 401 with same realm
+        g.is_authenticated = False
         return _auth_challenge()
     return wrapper
-
 # ================= END AUTH =================
 
 LOG_FILE = "/tmp/wifi-fallback-web.log"
@@ -239,16 +274,16 @@ def status():
     
 @app.route('/logout', methods=['GET'])
 def logout():
-    """
-    Force browser to "forget" credentials by returning an auth challenge
-    with a new realm. After this, protected pages will reprompt.
-    """
     log("👋 Logout requested via /logout")
-    # Invalidate all previous auth by rotating nonce
-    _rotate_nonce()    
-    # treat logout page itself as unauthenticated
+
+    # Phase 2: after user submitted blank creds and comes back with ?done=1
+    if request.args.get("done") == "1":
+        g.is_authenticated = False
+        return _logout_page()
+
+    # Phase 1: force browser to prompt using SAME REALM and tell user to submit blanks
     g.is_authenticated = False
-    return _logout_page()
+    return _logout_challenge()
 
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
