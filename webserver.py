@@ -117,11 +117,11 @@ def get_configured_networks():
 
 @app.context_processor
 def inject_hostname():
-    #return {"hostname": socket.gethostname()}
+    open_mode = (SERVER_PASSWORD.strip() == "" or SERVER_PASSWORD.strip().lower() in ["none", "open"])
     return {
         "hostname": socket.gethostname(),
         "auth_banner": True,
-        "server_password": SERVER_PASSWORD
+        "auth_open": open_mode,
     }
 
 @app.route('/wifi', methods=['GET', 'POST'])
