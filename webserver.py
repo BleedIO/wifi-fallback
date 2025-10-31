@@ -21,6 +21,20 @@ import secrets   # ✅ for per-request realm nonce
 # Password source: config.json (later we’ll swap in config.json logic, but keeping env/default for now)
 SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 
+# This nonce is our "session generation". If it changes, all previous auth headers become invalid.
+AUTH_NONCE = secrets.token_hex(8)
+
+def _current_nonce():
+    global AUTH_NONCE
+    return AUTH_NONCE
+
+def _rotate_nonce():
+    # called on logout
+    global AUTH_NONCE
+    AUTH_NONCE = secrets.token_hex(8)
+    return AUTH_NONCE
+
+
 def _auth_challenge():
     """
     Send a 401 with a fresh realm so the browser will ask for creds.
@@ -95,12 +109,24 @@ def require_auth(view_fn):
     def wrapper(*args, **kwargs):
         auth = request.authorization
 
-        # Check provided creds
-        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
+        # ----- AUTH CHECK -----
+        is_ok = False
+        if auth:
+            # Option A (legacy): username == "admin", password == SERVER_PASSWORD
+            if auth.username == "admin" and auth.password == SERVER_PASSWORD:
+                is_ok = True
+
+            # Option B (new stronger): username carries nonce "<nonce>", password is SERVER_PASSWORD
+            # This lets us invalidate all old logins by rotating AUTH_NONCE.
+            if auth.username == _current_nonce() and auth.password == SERVER_PASSWORD:
+                is_ok = True
+
+        if is_ok:
             # mark this request as authenticated for the template/banner
             g.is_authenticated = True
+
             # Call the real view
-            inner_resp = view_fn(*args, **kwargs)
+            inner_resp = view_fn(*args, **kwargs)            
 
             # Wrap it so we can force no-cache headers on SUCCESS too
             if isinstance(inner_resp, tuple):
@@ -174,6 +200,7 @@ def get_configured_networks():
 def inject_hostname():
     open_mode = (SERVER_PASSWORD.strip() == "" or SERVER_PASSWORD.strip().lower() in ["none", "open"])
     is_auth = getattr(g, "is_authenticated", False)
+    print(f"g.is_authenticated = {is_auth}")
     return {
         "hostname": socket.gethostname(),
         "auth_banner": is_auth,
@@ -217,6 +244,8 @@ def logout():
     with a new realm. After this, protected pages will reprompt.
     """
     log("👋 Logout requested via /logout")
+    # Invalidate all previous auth by rotating nonce
+    _rotate_nonce()    
     # treat logout page itself as unauthenticated
     g.is_authenticated = False
     return _logout_page()
