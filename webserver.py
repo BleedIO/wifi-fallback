@@ -1,6 +1,6 @@
 # webserver.py
 
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import os
 import sys
 import json
@@ -9,6 +9,60 @@ from waitress import serve
 import socket
 import subprocess  # ✅ Add this at the top with other imports
 from werkzeug.utils import secure_filename
+from functools import wraps  # ✅ for auth decorator
+
+# ================= AUTH =================
+# We try to load password from /etc/rssi-gatewayapi/config.json first.
+# Fallback order:
+#   1. config.json["password"] (device config)
+#   2. $SERVER_PASSWORD env var
+#   3. hardcoded default "bleedio-x52"
+
+def load_server_password():
+    # 1. Try config.json from the device
+    cfg_path = "/etc/rssi-gatewayapi/config.json"
+    try:
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r") as f:
+                cfg = json.load(f)
+                pw = cfg.get("password") or cfg.get("admin_password") or cfg.get("web_password")
+                if pw and isinstance(pw, str) and pw.strip():
+                    return pw.strip()
+    except Exception as e:
+        # don't crash server just because config read failed
+        print(f"[auth] failed to read password from {cfg_path}: {e}")
+
+    # 2. Env override
+    env_pw = os.getenv("SERVER_PASSWORD", "").strip()
+    if env_pw:
+        return env_pw
+
+    # 3. Final fallback default
+    return "bleedio-x52"
+
+SERVER_PASSWORD = load_server_password()
+
+def require_auth(view_fn):
+    """
+    Decorator for routes that need auth.
+    Uses HTTP Basic Auth with username 'admin' and password from SERVER_PASSWORD.
+    """
+    @wraps(view_fn)
+    def wrapper(*args, **kwargs):
+        auth = request.authorization
+
+        # Check provided creds
+        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
+            return view_fn(*args, **kwargs)
+
+        # Ask browser for credentials
+        return (
+            jsonify({"error": "Unauthorized"}),
+            401,
+            {"WWW-Authenticate": 'Basic realm="BleedIO AP Setup"'}
+        )
+    return wrapper
+# ================= END AUTH =================
 
 LOG_FILE = "/tmp/wifi-fallback-web.log"
 
@@ -65,7 +119,8 @@ def get_configured_networks():
 def inject_hostname():
     return {"hostname": socket.gethostname()}
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/wifi', methods=['GET', 'POST'])
+@require_auth
 def wifi():
     try:
         if request.method == 'POST':
@@ -92,12 +147,12 @@ def wifi():
             return redirect(url_for('confirmation'))
 
         networks = get_configured_networks()
-        return render_template('index.html', networks=networks)
+        return render_template('wifi.html', networks=networks)
     except Exception:
-        log("❌ Exception in `/` route:\n" + traceback.format_exc())
+        log("❌ Exception in `/wifi` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
 
-@app.route('/status')
+@app.route('/')
 def status():
     try:
         result = subprocess.run(
@@ -121,15 +176,17 @@ def status():
             config=config_data
         )
     except Exception:
-        log("❌ Exception in `/status` route:\n" + traceback.format_exc())
+        log("❌ Exception in `/` route:\n" + traceback.format_exc())
         return "Internal Server Error", 500
 
 @app.route('/confirmation')
+@require_auth
 def confirmation():
     log("✅ Confirmation page displayed.")
     return render_template('confirmation.html')
 
 @app.route('/cancel', methods=['POST'])
+@require_auth
 def cancel():
     log("❌ Shut down AP...")
     os.system("nmcli connection down Hotspot")
@@ -137,10 +194,12 @@ def cancel():
     #return redirect(url_for('confirmation'))
 
 @app.route('/reboot', methods=['GET'])
+@require_auth
 def reboot_get():
     return "Method Not Allowed", 405
 
 @app.route('/reboot', methods=['POST'])
+@require_auth
 def reboot():
     log("🔁 Reboot triggered from web")
     os.system("reboot")
@@ -148,10 +207,12 @@ def reboot():
     return "Rebooting…", 200
 
 @app.route('/upload', methods=['GET'])
+@require_auth
 def upload_form():
     return render_template('upload.html', output=None, filename=None, error=None)
 
 @app.route('/upload', methods=['POST'])
+@require_auth
 def upload_install():
     file = request.files.get('package')
     if not file or file.filename == '':

@@ -192,5 +192,5 @@ while true; do
         sleep 60 #check every 60 seconds
     fi
 
-    #sleep 60  # Check every 30 seconds
+    sleep 10  # Check every 30 seconds
 done
