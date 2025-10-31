@@ -23,14 +23,51 @@ SERVER_PASSWORD = os.getenv("SERVER_PASSWORD", "bleedio-x52")
 
 def _auth_challenge():
     """
-    Return a 401 with:
-    - randomized realm so browser treats it as a "new" credential space
-    - headers to disable caching
-    This is used for both 'please log in' and 'log out'.
-+    """
+    Standard 401 challenge.
+    Returns a response that forces the browser to prompt again next time.
+    """
     realm_nonce = secrets.token_hex(4)
 
     resp = make_response(jsonify({"error": "Unauthorized"}), 401)
+    resp.headers["WWW-Authenticate"] = f'Basic realm="BleedIO AP {realm_nonce}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
+
+def _logout_with_redirect():
+    """
+    Special-case logout:
+    - still returns 401 with a fresh realm (so browser forgets creds),
+    - but body is an HTML page that immediately meta-refreshes to "/".
+    """
+    realm_nonce = secrets.token_hex(4)
+
+    html = """
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta http-equiv="refresh" content="0; url=/" />
+        <title>Logged out</title>
+        <style>
+          body { font-family: Arial, sans-serif; background:#f4f6f8; padding:40px; color:#333; }
+          .box {
+            max-width:400px; margin:40px auto; background:#fff; border-radius:12px;
+            box-shadow:0 4px 12px rgba(0,0,0,0.08); padding:24px 28px;
+            text-align:center; line-height:1.4;
+          }
+          .small { font-size:13px; color:#666; margin-top:12px; }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <div>Signing you out…</div>
+          <div class="small">Redirecting to status page</div>
+        </div>
+      </body>
+    </html>
+    """
+    resp = make_response(html, 401)
+    resp.headers["Content-Type"] = "text/html; charset=utf-8"
     resp.headers["WWW-Authenticate"] = f'Basic realm="BleedIO AP {realm_nonce}"'
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["Pragma"] = "no-cache"
@@ -162,7 +199,7 @@ def logout():
     with a new realm. After this, protected pages will reprompt.
     """
     log("👋 Logout requested via /logout")
-    return _auth_challenge()    
+    return _logout_with_redirect()
 
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
