@@ -159,39 +159,36 @@ def require_auth(view_fn):
 
         global LOGGED_OUT
 
-        # If we've explicitly logged out, block access until fresh login.
-        # This prevents the "I can still see /wifi after logout" problem.
+        # 1. Check if creds are valid
+        good = False
+        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
+            good = True
+
+        if good:
+            # successful login overrides the logged-out lock
+            LOGGED_OUT = False
+            g.is_authenticated = True
+
+            inner_resp = view_fn(*args, **kwargs)
+
+            if isinstance(inner_resp, tuple):
+                resp = make_response(*inner_resp)
+            else:
+                resp = make_response(inner_resp)
+
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            return resp
+
+        # 2. If creds are not good, and we've explicitly logged out, block hard
         if LOGGED_OUT:
             g.is_authenticated = False
             return _auth_challenge()
 
-        # Check provided Basic Auth creds
-        is_ok = False
-        if auth and auth.username == "admin" and auth.password == SERVER_PASSWORD:
-            is_ok = True
+        # 3. Otherwise just normal challenge for missing/wrong creds
+        g.is_authenticated = False
+        return _auth_challenge()
 
-        if not is_ok:
-            # missing/wrong creds -> challenge
-            g.is_authenticated = False
-            return _auth_challenge()
-
-        # creds are valid -> mark request authenticated,
-        # and clear the logged-out lock so session is "live" again
-        LOGGED_OUT = False
-        g.is_authenticated = True
-
-        # Call the real view
-        inner_resp = view_fn(*args, **kwargs)
-
-        # Wrap so we can force no-cache headers on success
-        if isinstance(inner_resp, tuple):
-            resp = make_response(*inner_resp)
-        else:
-            resp = make_response(inner_resp)
-
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        resp.headers["Pragma"] = "no-cache"
-        return resp
     return wrapper
 # ================= END AUTH =================
 
@@ -290,13 +287,10 @@ def status():
 @app.route('/logout', methods=['GET'])
 def logout():
     log("👋 Logout requested via /logout")
-
     global LOGGED_OUT
     LOGGED_OUT = True  # lock down protected routes until fresh auth
-
     # treat logout page itself as unauthenticated
     g.is_authenticated = False
-
     return _logout_page()
 
 @app.route('/wifi', methods=['GET', 'POST'])
