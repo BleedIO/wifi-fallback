@@ -37,6 +37,12 @@
     </div>
   </div>
 
+  {% if auth_banner %}
+  <div style="background:#f9f9f9;border-bottom:1px solid #ccc;padding:8px 16px;font-size:13px;text-align:center;color:#333;">
+    🔒 Password-protected mode active
+  </div>
+  {% endif %}  
+
   <div class="content">
     {% block content %}{% endblock %}
   </div>
