@@ -12,9 +12,11 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/DEBIAN"
 mkdir -p "$STAGE/opt/wifi-fallback"
 mkdir -p "$STAGE/etc/systemd/system"
+mkdir -p "$STAGE/usr/bin"
 
 # app files (copy your tree exactly)
 cp -a ap_mode.sh webserver.py preflight.sh start.sh watch_ip.sh "$STAGE/opt/wifi-fallback/"
+cp -a add_wifi.sh "$STAGE/usr/bin/add_wifi.sh"
 cp -a static "$STAGE/opt/wifi-fallback/"
 cp -a templates "$STAGE/opt/wifi-fallback/"
 # install the unit into the correct system path
@@ -23,6 +25,7 @@ cp -a ap_mode.service "$STAGE/etc/systemd/system/wifi-fallback.service"
 # perms
 chmod 755 "$STAGE/opt/wifi-fallback"/ap_mode.sh
 chmod 755 "$STAGE/opt/wifi-fallback"/webserver.py
+chmod 755 "$STAGE/usr/bin/add_wifi.sh"
 find "$STAGE/opt/wifi-fallback/static" -type f -exec chmod 644 {} +
 find "$STAGE/opt/wifi-fallback/templates" -type f -exec chmod 644 {} +
 
