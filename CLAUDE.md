@@ -25,14 +25,14 @@ Every changed line must be directly traceable to the requested task.
 
 ```bash
 # Syntax check the shell scripts
-bash -n ap_mode.sh add_wifi.sh usb_wifi.sh preflight.sh start.sh watch_ip.sh
+bash -n ap_mode.sh add_wifi.sh usb_wifi.sh preflight.sh start.sh watch_ip.sh install.sh
 
 # Build the deb package (default version is set in packaging/build.sh)
 chmod +x packaging/build.sh
-VERSION=0.6.0 packaging/build.sh
+VERSION=0.6.1 packaging/build.sh
 
 # Install on a reader
-sudo dpkg -i packaging/wifi-fallback_0.6.0_$(dpkg --print-architecture).deb
+sudo dpkg -i packaging/wifi-fallback_0.6.1_$(dpkg --print-architecture).deb
 # if deps missing:
 sudo apt -f -y install
 
@@ -60,10 +60,10 @@ Headless Wi-Fi provisioning for Raspberry Pi readers (BleedIO locMESH). When the
 
 ### USB Wi-Fi Provisioning (secondary flow)
 
-`99-usb-wifi.rules` (udev, USB partitions with a filesystem only) → `usb-wifi@.service` (oneshot, `BindsTo` the device, 90s timeout) → `usb_wifi.sh`:
+`99-usb-wifi.rules` (udev, USB partitions with a filesystem only) → `usb-wifi@.service` (oneshot, ordered `After=` the device, 250s timeout) → `usb_wifi.sh`:
 mounts the stick read-only, exits silently if no `/wifi.conf`, otherwise parses `SSID=`/`PASSWORD=` (CRLF/BOM tolerant), calls `add_wifi.sh`, polls nmcli for a real connection + IP, then remounts rw and writes `wifi-result.log` (append) and `wifi-status.txt` (snapshot) back to the stick. `wifi.conf` is left in place so one stick provisions many readers.
 
-### Single Source of nmcli Logic
+### nmcli Logic: `add_wifi.sh`
 
 `add_wifi.sh` (installed to `/usr/bin/`) deletes any existing profile with the same SSID, re-adds it (open or WPA-PSK), tears down `bleedio-ap`, and connects. `usb_wifi.sh` calls it; the portal (`webserver.py`) has its own separate inline nmcli calls (pre-existing, not unified). New nmcli logic goes in `add_wifi.sh`, not duplicated elsewhere.
 
@@ -79,7 +79,7 @@ mounts the stick read-only, exits silently if no `/wifi.conf`, otherwise parses 
 
 ### Packaging
 
-`packaging/build.sh` stages the tree under `packaging/deb/`, generates DEBIAN control/preinst/postinst/prerm/postrm inline (heredocs), and builds with `dpkg-deb`. Postinst enables/restarts the service and reloads+replays udev rules so an already-inserted stick is picked up. Deps: python3, python3-flask, python3-waitress, network-manager, iproute2. Old staged versions remain under `packaging/deb/` — do not edit those; they are build artifacts.
+`packaging/build.sh` stages the tree under `packaging/deb/`, generates DEBIAN control/preinst/postinst/prerm/postrm inline (heredocs), and builds with `dpkg-deb`. Postinst enables/restarts the service and reloads udev rules (deliberately without replaying `add` events, which would re-provision from a stick left plugged in during an upgrade). Deps: python3, python3-flask, python3-waitress, network-manager, iproute2, iw. Old staged versions remain under `packaging/deb/` — do not edit those; they are build artifacts.
 
 ### Target Environment Constraints
 
