@@ -1,0 +1,20 @@
+# Templated oneshot started by 99-usb-wifi.rules for each inserted USB
+# partition (%i = kernel name, e.g. sda1). Probes the stick for /wifi.conf
+# and, if present, provisions Wi-Fi via add_wifi.sh and writes results back.
+[Unit]
+Description=USB Wi-Fi provisioning for /dev/%i
+# Ordering only: the device must exist before we start. Deliberately NOT
+# BindsTo= — an early unplug would SIGTERM the worker mid-write, leaving a
+# partial log and a stale mountpoint. The worker handles a vanished device
+# itself (lazy unmount) and is bounded by TimeoutStartSec.
+After=dev-%i.device
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/usb_wifi.sh /dev/%i
+# A bad stick or unreachable AP must not hang the unit forever. Must exceed
+# the worker's own LOCK_WAIT (120s) + CONNECT_WAIT, where CONNECT_WAIT is a
+# wall-clock budget (45s) but each poll iteration also spends time inside
+# nmcli/iw calls — budget generously so the script always reaches its own
+# error path and reports a real status instead of being killed.
+TimeoutStartSec=250

@@ -1,0 +1,8 @@
+# udev rule: on insertion of a USB partition that carries a filesystem,
+# start the templated oneshot service that probes it for /wifi.conf.
+# TAG+="systemd" is mandatory — without it systemd never sees the device
+# unit and SYSTEMD_WANTS is ignored.
+# SUBSYSTEMS=="usb" restricts to real USB sticks (not the Pi's own SD slot).
+# We deliberately run via a systemd unit instead of RUN+= because udev kills
+# long-running children and mounts made inside udev are invisible system-wide.
+ACTION=="add", SUBSYSTEM=="block", SUBSYSTEMS=="usb", ENV{DEVTYPE}=="partition", ENV{ID_FS_USAGE}=="filesystem", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-wifi@%k.service"

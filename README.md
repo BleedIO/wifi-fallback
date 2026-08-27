@@ -1,22 +1,116 @@
-This package creates the http portal on raspberry when it doesn't / can't see the wifi it can connect.
+# wifi-fallback
 
-Install the package, reboot, connect to the wifi ssid "bleedio-{hostname}" (default password is bleedio12), go for http://10.24.0.1
+> **What this is:** the entry point and documentation map for the headless Wi-Fi provisioning package for BleedIO readers.
+> **See also:** ARCHITECTURE.md (how the system works), VISION.md (roadmap), CLAUDE.md (agent/contributor working rules).
+> **Audience:** anyone landing in the repo for the first time, and operators provisioning readers in the field.
 
-You can add the wifi credentials and install deb package
+`wifi-fallback` gives a headless Raspberry Pi reader two ways to get onto Wi-Fi without a keyboard or screen:
 
-The status page is customizable and currently used for http://Bleedio.com readers for locMESH
+1. **Fallback AP + web portal** — when the reader can't join a known network, it raises its own hotspot (`bleedio-<hostname>`, default password `bleedio12`) with a captive web portal at `http://10.24.0.1` for entering credentials, checking status, rebooting, and uploading deb packages.
+2. **USB stick provisioning** — plug in a stick with a `wifi.conf` at its root; the reader connects and writes the result back to the stick. No UI at all.
 
-# build deb package
+The USB flow and `add_wifi.sh` (also callable by hand) manage NetworkManager profiles via nmcli; the portal currently uses its own inline nmcli calls (see ARCHITECTURE.md). Ships as a deb package. Used for http://Bleedio.com readers for locMESH; the status page is customizable.
 
-cd /opt/wifi-fallback
-chmod +x packaging/build.sh
-VERSION=0.4.0 packaging/build.sh
+## Documentation map
 
-sudo dpkg -i packaging/wifi-fallback_0.4.0_$(dpkg --print-architecture).deb
+| File | What it's for | When to read |
+|---|---|---|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Deep spec: both provisioning flows, install paths, packaging, target constraints | Changing scripts, units, or packaging |
+| [VISION.md](VISION.md) | Roadmap / direction and known limitations | Planning improvements |
+| [CLAUDE.md](CLAUDE.md) | Agent/contributor working rules | Before making changes |
 
-# if deps missing:
-sudo apt -f -y install
+## Common operator tasks
 
-# next version
-1. password protection for the admin page
-2. save password for the admin page
+### Provision a reader with a USB stick
+
+1. Put a `wifi.conf` file at the root of any USB stick:
+
+   ```
+   SSID=MyNetwork
+   PASSWORD=secret123
+   ```
+
+   `PASSWORD=` may be omitted for open networks. Editing on Windows is fine — CRLF line endings and a BOM are tolerated.
+2. Plug the stick into the reader. Within ~1 minute it adds/rewrites the connection profile and connects.
+3. Pull the stick and check the files written back to it:
+   - `wifi-result.log` — appended per attempt: timestamp, hostname, SSID, `OK` + IP, or `FAIL` + the reason (wrong password, DHCP failure, timeout) and nmcli error text
+   - `wifi-status.txt` — device status snapshot (interfaces, active connection, signal)
+
+`wifi.conf` is left in place, so one stick provisions many readers in a row. Sticks without a `wifi.conf` are left completely untouched.
+
+### Provision a reader through the portal
+
+1. Boot the reader out of range of any known network; the hotspot `bleedio-<hostname>` appears (password `bleedio12`).
+2. Connect and open `http://10.24.0.1`, log in.
+3. Enter SSID + password on the Wi-Fi page; the reader drops the hotspot and connects. The portal also offers status, reboot, and deb upload/install.
+
+### Install on a reader
+
+Current release: **`packaging/wifi-fallback_0.6.0_arm64.deb`** (checksum in `.sha256` alongside it).
+
+Copy the deb and `install.sh` to the reader, then:
+
+```bash
+sudo ./install.sh wifi-fallback_0.6.0_arm64.deb
+```
+
+`install.sh` installs any missing apt dependencies first, then the package. It only touches apt if something is actually missing, so a routine upgrade on an already-provisioned reader needs no network.
+
+Equivalent alternatives, if you'd rather not copy the wrapper:
+
+```bash
+sudo apt install ./wifi-fallback_0.6.0_arm64.deb   # note the ./ — apt resolves deps
+sudo dpkg -i wifi-fallback_0.6.0_arm64.deb && sudo apt -f -y install
+```
+
+A bare `dpkg -i` with a dependency missing fails cleanly and prints these options. The package's `preinst` cannot install dependencies itself: it runs inside dpkg, which already holds the lock `apt-get` would need.
+
+**Dependencies:** `python3`, `python3-flask`, `python3-waitress`, `network-manager`, `iproute2`, `iw`. All are present on stock Raspberry Pi OS. `iw` is new in 0.6.0 (used to verify which SSID the radio actually joined) — on a minimally-imaged reader, `sudo apt install iw` first. If a reader is offline *and* missing a dependency, install it while the reader still has connectivity, or carry the dep debs on the USB stick.
+
+After install, `wifi-fallback.service` is enabled and restarted and the udev rules are reloaded. A USB stick **already plugged in** during install is not processed — postinst deliberately doesn't replay udev `add` events (that would re-provision the reader and could drop your own SSH session mid-upgrade). Unplug and re-insert to trigger it.
+
+Verify the install:
+
+```bash
+systemctl status wifi-fallback.service
+systemctl cat usb-wifi@.service >/dev/null && echo "USB unit installed"
+ls /etc/udev/rules.d/99-usb-wifi.rules
+```
+
+### Build the package
+
+```bash
+# on the reader (or any arm64 host)
+VERSION=0.6.0 ./packaging/build.sh
+
+# cross-build for a reader from an amd64 machine — the package has no compiled
+# code, so only the architecture label differs
+ARCH=arm64 VERSION=0.6.0 ./packaging/build.sh
+```
+
+The artifact lands in `packaging/wifi-fallback_<version>_<arch>.deb`. Bump `VERSION` for a new release (the default lives at the top of `packaging/build.sh`). To publish a checksum alongside it:
+
+```bash
+cd packaging && sha256sum wifi-fallback_0.6.0_arm64.deb > wifi-fallback_0.6.0_arm64.deb.sha256
+```
+
+Staged build trees under `packaging/deb/` are intermediate artifacts — ignore them; only the `.deb` ships.
+
+### Manual (non-deb) install
+
+`sudo ./start.sh` runs `preflight.sh`, copies the unit, and enables the service; reboot to apply. This is the legacy pre-deb path: it installs **only** the AP portal, not the USB provisioning feature, and does not check system dependencies. Prefer the deb.
+
+## Script reference
+
+| Script | Purpose |
+|---|---|
+| `ap_mode.sh` | Boot entry (via `wifi-fallback.service`): waits for Wi-Fi, else raises hotspot + starts the portal |
+| `webserver.py` | Flask + waitress portal: login, status, Wi-Fi entry, reboot, deb upload |
+| `add_wifi.sh` | Standalone nmcli helper; called by `usb_wifi.sh` (the portal has its own inline nmcli calls, see ARCHITECTURE.md) |
+| `usb_wifi.sh` | USB worker: probe stick → parse `wifi.conf` → connect → write results back |
+| `watch_ip.sh` | Restarts the portal when the wlan0 IP changes |
+| `install.sh` | Installs missing apt dependencies, then the deb (works around preinst not being able to) |
+| `preflight.sh` | Remounts `/` rw, resizes `/run` if too small, installs python deps |
+| `start.sh` | Manual installer (non-deb path) |
+
+Trigger chain for USB: `99-usb-wifi.rules` (udev) → `usb-wifi@.service` (oneshot) → `usb_wifi.sh`.
