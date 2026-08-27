@@ -2,6 +2,7 @@
 
 from flask import Flask, render_template, request, redirect, url_for, jsonify, make_response, g, session
 import os
+import re
 import sys
 import json
 import traceback
@@ -138,6 +139,21 @@ app.secret_key = secrets.token_hex(16)  # needed for Flask session cookies
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB cap
 ALLOWED_EXTENSIONS = {'deb'}
 
+# Keys from /etc/rssi-gatewayapi/config.json that are safe to show on the
+# public status page. Allowlist, not denylist: the page is served to anyone on
+# the fallback hotspot without authentication, and the config also holds
+# IDScope, which is the shared secret readers sign status reports with. A new
+# secret-bearing key added to that file must not appear here by default.
+PUBLIC_CONFIG_KEYS = {
+    'Organization',
+    'idNet',
+    'DevName',
+    'DevEnv',
+    'RDP',
+    'LocalDB',
+    'RegistrationId',
+}
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -204,13 +220,29 @@ def status():
         if os.path.exists(config_path):
             try:
                 with open(config_path) as f:
-                    config_data = json.load(f)
+                    raw_config = json.load(f)
+                # This page is public (see g.is_authenticated above): anyone who
+                # joins the fallback hotspot can read it without logging in.
+                # Show only identifying fields, never the whole file — IDScope
+                # doubles as the reader's auth secret for the status API, and a
+                # denylist would leak whatever secret-bearing key is added next.
+                config_data = {
+                    k: v for k, v in raw_config.items()
+                    if k in PUBLIC_CONFIG_KEYS
+                }
             except Exception as e:
                 config_data = {"error": f"Failed to read config.json: {e}"}
 
+        # rssi-gatewayapi prints "ID_SCOPE:<secret>" at startup, so a restart
+        # can push it into the tail that systemctl status shows on this public
+        # page. Redact it rather than relying on it having scrolled away.
+        safe_status = re.sub(
+            r"(ID_SCOPE\s*:\s*)\S+", r"\1<redacted>", result.stdout or ""
+        )
+
         return render_template(
             'status.html',
-            status=result.stdout,
+            status=safe_status,
             config=config_data
         )
     except Exception:

@@ -12,7 +12,7 @@
 ### Near term
 
 1. **Password protection hardening for the admin portal** — carried over from the pre-0.6 notes: proper credential storage for the admin page (persisted, changeable password instead of the built-in default).
-2. **Field validation of the USB flow (0.6.1)** — run the manual test matrix (OK / bad password / plain stick / yank mid-run) on real readers before promoting to the prod OTA channel.
+2. **Field validation of the USB flow (0.6.2)** — run the manual test matrix (OK / bad password / plain stick / yank mid-run) on real readers before promoting to the prod OTA channel.
 
 ### Later
 

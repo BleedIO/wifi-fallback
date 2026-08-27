@@ -91,12 +91,12 @@ The hotspot stays up for as long as you are connected to it — the reader only 
 
 ### Install on a reader
 
-Current release: **`packaging/wifi-fallback_0.6.1_arm64.deb`** (checksum in `.sha256` alongside it).
+Current release: **`packaging/wifi-fallback_0.6.2_arm64.deb`** (checksum in `.sha256` alongside it).
 
 Copy the deb and `install.sh` to the reader, then:
 
 ```bash
-sudo ./install.sh wifi-fallback_0.6.1_arm64.deb
+sudo ./install.sh wifi-fallback_0.6.2_arm64.deb
 ```
 
 `install.sh` installs any missing apt dependencies first, then the package. It only touches apt if something is actually missing, so a routine upgrade on an already-provisioned reader needs no network.
@@ -104,8 +104,8 @@ sudo ./install.sh wifi-fallback_0.6.1_arm64.deb
 Equivalent alternatives, if you'd rather not copy the wrapper:
 
 ```bash
-sudo apt install ./wifi-fallback_0.6.1_arm64.deb   # note the ./ — apt resolves deps
-sudo dpkg -i wifi-fallback_0.6.1_arm64.deb && sudo apt -f -y install
+sudo apt install ./wifi-fallback_0.6.2_arm64.deb   # note the ./ — apt resolves deps
+sudo dpkg -i wifi-fallback_0.6.2_arm64.deb && sudo apt -f -y install
 ```
 
 A bare `dpkg -i` with a dependency missing fails cleanly and prints these options. The package's `preinst` cannot install dependencies itself: it runs inside dpkg, which already holds the lock `apt-get` would need.
@@ -126,17 +126,17 @@ ls /etc/udev/rules.d/99-usb-wifi.rules
 
 ```bash
 # on the reader (or any arm64 host)
-VERSION=0.6.1 ./packaging/build.sh
+VERSION=0.6.2 ./packaging/build.sh
 
 # cross-build for a reader from an amd64 machine — the package has no compiled
 # code, so only the architecture label differs
-ARCH=arm64 VERSION=0.6.1 ./packaging/build.sh
+ARCH=arm64 VERSION=0.6.2 ./packaging/build.sh
 ```
 
 The artifact lands in `packaging/wifi-fallback_<version>_<arch>.deb`. Bump `VERSION` for a new release (the default lives at the top of `packaging/build.sh`). To publish a checksum alongside it:
 
 ```bash
-cd packaging && sha256sum wifi-fallback_0.6.1_arm64.deb > wifi-fallback_0.6.1_arm64.deb.sha256
+cd packaging && sha256sum wifi-fallback_0.6.2_arm64.deb > wifi-fallback_0.6.2_arm64.deb.sha256
 ```
 
 Staged build trees under `packaging/deb/` are intermediate artifacts — ignore them; only the `.deb` ships.
