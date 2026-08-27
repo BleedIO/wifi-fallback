@@ -27,6 +27,11 @@ else
     PASSWORD="${2:-}"
 fi
 IFACE="wlan0"
+# Rank a freshly provisioned network above pre-existing profiles, which sit at
+# NetworkManager's default priority of 0. Without this, a reader that can still
+# see an old network may autoconnect back to it instead of the one just
+# provisioned, since NM otherwise falls back to "most recently active wins".
+AUTOCONNECT_PRIORITY="${AUTOCONNECT_PRIORITY:-10}"
 
 # Ensure filesystem and NM are writable/ready. Only restart NM when it is not
 # already responding — an unconditional restart drops every active connection,
@@ -45,7 +50,7 @@ nmcli connection delete "$SSID" 2>/dev/null || true
 # new network and no diagnostic. Report clearly and exit 1 instead.
 if ! {
     nmcli connection add type wifi ifname "$IFACE" con-name "$SSID" ssid "$SSID" &&
-    nmcli connection modify "$SSID" connection.autoconnect yes &&
+    nmcli connection modify "$SSID" connection.autoconnect yes connection.autoconnect-priority "$AUTOCONNECT_PRIORITY" &&
     if [[ -n "$PASSWORD" ]]; then
         nmcli connection modify "$SSID" 802-11-wireless.mode infrastructure wifi-sec.key-mgmt wpa-psk &&
         nmcli connection modify "$SSID" wifi-sec.psk "$PASSWORD"

@@ -37,6 +37,8 @@ The USB flow and `add_wifi.sh` (also callable by hand) manage NetworkManager pro
 
 `wifi.conf` is left in place, so the same stick can provision one reader after another. Sticks without a `wifi.conf` are left completely untouched.
 
+A newly provisioned network is given a higher autoconnect priority than any network already saved on the reader, so it wins if several are in range. Provisioning the same reader again with a different network makes that new one preferred in turn.
+
 #### The `wifi.conf` file
 
 Two keys, one per line. `SSID` is required; `PASSWORD` is optional.

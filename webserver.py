@@ -297,7 +297,9 @@ def wifi():
             # Add a new Wi-Fi connection
             os.system(f"nmcli connection add type wifi ifname wlan0 con-name '{ssid}' ssid '{ssid}'")
             os.system(f"nmcli connection modify '{ssid}' 802-11-wireless.mode infrastructure wifi-sec.key-mgmt wpa-psk")
-            os.system(f"nmcli connection modify '{ssid}' wifi-sec.psk '{password}' connection.autoconnect yes")
+            # autoconnect-priority 10 ranks this above pre-existing profiles
+            # (default 0), so the reader prefers the network just entered.
+            os.system(f"nmcli connection modify '{ssid}' wifi-sec.psk '{password}' connection.autoconnect yes connection.autoconnect-priority 10")
 
             # Switch from Hotspot to this network
             os.system("nmcli connection down bleedio-ap 2>/dev/null")

@@ -114,6 +114,8 @@ start_ap() {
     #nmcli dev wifi ifname "$AP_IFACE" con-name bleedio-ap ssid "$AP_SSID"  2>>$LOGFILE
     nmcli connection add type wifi ifname "$AP_IFACE" con-name bleedio-ap ssid "$AP_SSID" 2>>$LOGFILE
     nmcli connection modify bleedio-ap \
+        connection.autoconnect no \
+        connection.autoconnect-priority -10 \
         802-11-wireless.mode ap \
         802-11-wireless.band bg \
         ipv4.method shared \

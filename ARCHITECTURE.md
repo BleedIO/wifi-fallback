@@ -66,7 +66,9 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 - leaves the `nmcli connection up` error on stderr so callers can report why a connect failed
 - deletes any existing profile with the same SSID, then re-adds it (rewrite semantics)
 - open network (no password) or WPA-PSK
-- sets autoconnect, tears down `bleedio-ap`, brings the new connection up
+- sets autoconnect with `connection.autoconnect-priority` 10 (override with the `AUTOCONNECT_PRIORITY` env var), tears down `bleedio-ap`, brings the new connection up
+
+**Autoconnect priority.** Profiles NetworkManager creates by default sit at priority `0`, and NM breaks ties by preferring the most recently active connection — so a reader that can still see an older network might autoconnect back to it instead of the one just provisioned. Newly provisioned networks are therefore set to `10`, above any pre-existing profile. The hotspot (`bleedio-ap`) is pinned at `-10` with `autoconnect no`, so it never competes with real connectivity and comes up only when `ap_mode.sh` explicitly raises it. The portal sets the same `10` inline.
 
 `usb_wifi.sh` calls it. **The portal does not** — `webserver.py`'s `/wifi` route runs its own inline `nmcli` calls via `os.system` (pre-existing, not changed by the USB feature). The two implementations have drifted: the portal's copy restarts NetworkManager unconditionally. New nmcli logic should go in `add_wifi.sh`, not be duplicated further; unifying the portal onto `add_wifi.sh` is tracked in VISION.md.
 
