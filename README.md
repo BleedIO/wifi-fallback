@@ -23,20 +23,61 @@ The USB flow and `add_wifi.sh` (also callable by hand) manage NetworkManager pro
 
 ### Provision a reader with a USB stick
 
-1. Put a `wifi.conf` file at the root of any USB stick:
+1. Save a file named exactly `wifi.conf` in the **top-level folder** of a USB stick:
 
    ```
    SSID=MyNetwork
    PASSWORD=secret123
    ```
 
-   `PASSWORD=` may be omitted for open networks. Editing on Windows is fine — CRLF line endings and a BOM are tolerated.
-2. Plug the stick into the reader. Within ~1 minute it adds/rewrites the connection profile and connects.
-3. Pull the stick and check the files written back to it:
-   - `wifi-result.log` — appended per attempt: timestamp, hostname, SSID, `OK` + IP, or `FAIL` + the reason (wrong password, DHCP failure, timeout) and nmcli error text
-   - `wifi-status.txt` — device status snapshot (interfaces, active connection, signal)
+2. Plug the stick into the reader. Within about a minute it adds (or rewrites) the connection profile and connects.
+3. Pull the stick and open the two files written back to it:
+   - `wifi-result.log` — one line appended per attempt: timestamp, hostname, SSID, then `OK` with the IP address, or `FAIL` with the reason (wrong password, DHCP failure, timeout) and the nmcli error text
+   - `wifi-status.txt` — a status snapshot: interfaces, active connection, nearby networks and signal
 
-`wifi.conf` is left in place, so one stick provisions many readers in a row. Sticks without a `wifi.conf` are left completely untouched.
+`wifi.conf` is left in place, so the same stick can provision one reader after another. Sticks without a `wifi.conf` are left completely untouched.
+
+#### The `wifi.conf` file
+
+Two keys, one per line. `SSID` is required; `PASSWORD` is optional.
+
+```
+SSID=MyNetwork
+PASSWORD=secret123
+```
+
+Open network — **omit the `PASSWORD` line entirely** (a `PASSWORD=` line left empty is treated as a mistake and rejected, rather than silently joining an unsecured network):
+
+```
+SSID=GuestWiFi
+```
+
+Values with spaces work as-is; quotes are optional and stripped if you use a matched pair:
+
+```
+SSID=Front Office 2.4G
+PASSWORD="p@ss word!"
+```
+
+Details that matter in practice:
+
+- Everything after `=` is the value, including `#`, `=`, and spaces. There are no comments — a line starting with `#` is simply ignored, since it matches neither key.
+- Leading whitespace before `SSID`/`PASSWORD` is ignored. The key names are case-sensitive and must be uppercase.
+- Editing on Windows is fine: CRLF line endings and a UTF-8 BOM (which Notepad adds) are both handled, and a missing final newline is fine.
+- If a key appears more than once, the last one wins.
+- The SSID must match the network name exactly, including case.
+
+#### What kind of USB stick
+
+Any ordinary USB flash drive. Specifically:
+
+- **Formatted FAT32 or exFAT** — the default for a store-bought stick, and readable/writable on Windows and macOS. NTFS and ext4 also work if the reader has the driver.
+- **Partitioned normally** — i.e. formatted the usual way by Windows, macOS, or Disk Utility. A stick written as a raw filesystem with no partition table will not be detected.
+- **Not write-protected** — the reader needs to write the two result files back. If the stick has a physical write-lock switch, turn it off; otherwise provisioning still works but you get no result files, and the journal says so.
+- **`wifi.conf` at the top level**, not inside a folder.
+- Size and speed are irrelevant — the file is a few bytes.
+
+The reader mounts the stick read-only first and only remounts it writable if a `wifi.conf` is actually there, so plugging in an unrelated stick does not modify it.
 
 ### Provision a reader through the portal
 
