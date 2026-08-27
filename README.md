@@ -87,6 +87,8 @@ The reader mounts the stick read-only first and only remounts it writable if a `
 2. Connect and open `http://10.24.0.1`, log in.
 3. Enter SSID + password on the Wi-Fi page; the reader drops the hotspot and connects. The portal also offers status, reboot, and deb upload/install.
 
+The hotspot stays up for as long as you are connected to it — the reader only gives up and retries normal Wi-Fi after the hotspot has been idle (nobody connected) for about 100 seconds. So you will not be disconnected mid-configuration, however long you take.
+
 ### Install on a reader
 
 Current release: **`packaging/wifi-fallback_0.6.0_arm64.deb`** (checksum in `.sha256` alongside it).

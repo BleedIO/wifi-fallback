@@ -12,6 +12,10 @@ IP_CACHE_FILE="/tmp/wifi-fallback.lastip"
 LOGFILE="/tmp/wifi-fallback.log"
 LOGWEB="/tmp/wifi-fallback-web.log"
 TIMER="/tmp/wifi-fallback-hotspot-since"
+# How long the hotspot may sit idle (nobody associated) before the reader
+# tears it down and retries normal Wi-Fi. The timer is reset for as long as an
+# operator stays connected, so this only ever counts idle time.
+HOTSPOT_IDLE_TIMEOUT=100
 
 mkdir -p /run/wifi-fallback
 
@@ -25,6 +29,16 @@ get_ip() {
 
 is_webserver_running() {
     pgrep -f webserver.py > /dev/null
+}
+
+# Is anyone associated with our hotspot right now? While an operator is
+# connected the AP must stay up, otherwise the reader tears the network out
+# from under them mid-configuration. `iw ... station dump` lists associated
+# stations; empty output means nobody is connected.
+has_ap_clients() {
+    local stations
+    stations="$(iw dev "$AP_IFACE" station dump 2>/dev/null | grep -c '^Station')" || return 1
+    [[ "${stations:-0}" -gt 0 ]]
 }
 
 start_webserver() {
@@ -160,7 +174,14 @@ while true; do
     if [[ "$CURRENT_CON" == "bleedio-ap" ]]; then
         HOTSPOT_TIMER_FILE="$TIMER"
 
-        if [[ ! -f "$HOTSPOT_TIMER_FILE" ]]; then
+        # An operator connected to the portal keeps the hotspot alive. Reset
+        # the idle timer while they are attached so that after they disconnect
+        # they still get the full grace period rather than an immediate
+        # teardown.
+        if has_ap_clients; then
+            date +%s > "$HOTSPOT_TIMER_FILE"
+            log "👤 Operator connected to the hotspot — keeping AP up"
+        elif [[ ! -f "$HOTSPOT_TIMER_FILE" ]]; then
             date +%s > "$HOTSPOT_TIMER_FILE"
             log "🕐 Hotspot active — timer started"
             sleep 60 #check every 60 seconds
@@ -169,8 +190,8 @@ while true; do
             STARTED=$(cat "$HOTSPOT_TIMER_FILE")
             DIFF=$((NOW - STARTED))
 
-            if (( DIFF > 100 )); then  # 600 seconds = 10 minutes
-                log "🕑 Hotspot has been running for 10 minutes. Trying to reconnect to normal Wi-Fi."
+            if (( DIFF > HOTSPOT_IDLE_TIMEOUT )); then
+                log "🕑 Hotspot idle for ${HOTSPOT_IDLE_TIMEOUT}s with nobody connected. Trying to reconnect to normal Wi-Fi."
 
                 # Stop the AP
                 nmcli connection down bleedio-ap

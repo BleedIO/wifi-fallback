@@ -23,6 +23,7 @@ Headless Wi-Fi provisioning for Raspberry Pi readers (BleedIO locMESH). Two inde
 2. **`ap_mode.sh`** waits `WIFI_CHECK_TIMEOUT` (20s) for a normal Wi-Fi connection. If none appears, it creates a NetworkManager hotspot:
    - SSID `bleedio-<hostname>`, password `bleedio12`, connection name `bleedio-ap`, interface `wlan0`, portal IP `10.24.0.1`
    - then starts `webserver.py` (nohup, background) and keeps supervising: restarts the webserver on IP change, logs to `/tmp/wifi-fallback.log` / `/tmp/wifi-fallback-web.log`.
+   The hotspot is torn down again once it has sat **idle** for `HOTSPOT_IDLE_TIMEOUT` (100s), at which point the reader retries normal Wi-Fi. "Idle" means nobody is associated: while an operator is connected, `has_ap_clients` (`iw dev wlan0 station dump`) resets the timer every pass, so the AP stays up for as long as they are attached and only starts counting down after they disconnect. If `iw` is unavailable the check fails closed — it reports no clients, so the hotspot times out as it did before rather than staying up forever.
 3. **`webserver.py`** — Flask app served by waitress, templates in `templates/`, logo in `static/`. Routes:
    - `/` status page (configured networks, current connection)
    - `/login`, `/logout`, `/logout_basic` — session login guarding all pages (`require_auth`)
