@@ -141,6 +141,12 @@ cd packaging && sha256sum wifi-fallback_0.6.1_arm64.deb > wifi-fallback_0.6.1_ar
 
 Staged build trees under `packaging/deb/` are intermediate artifacts — ignore them; only the `.deb` ships.
 
+#### Always bump the version when contents change
+
+**Never rebuild a released version in place.** If the package contents change, bump `VERSION` — even for a one-line fix, and even if the previous version was only staged for minutes.
+
+Readers decide whether to install using `dpkg --compare-versions "$REMOTE_VER" gt "$INST_VER"` (`public/update_test.sh` in reader-status-app). The version string is the *only* identity: nothing compares checksums. So republishing changed contents under an unchanged version is not merely missed — the comparison is strictly greater-than, so it is actively skipped, and any reader that already installed the old build stays on it permanently with no indication anything is wrong. The same rule makes downgrades impossible: shipping a lower version number is refused, so a bad release is rolled back by publishing a *higher* version containing the fix, never by re-publishing the previous one.
+
 ### Manual (non-deb) install
 
 `sudo ./start.sh` runs `preflight.sh`, copies the unit, and enables the service; reboot to apply. This is the legacy pre-deb path: it installs **only** the AP portal, not the USB provisioning feature, and does not check system dependencies. Prefer the deb.

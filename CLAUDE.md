@@ -81,6 +81,10 @@ mounts the stick read-only, exits silently if no `/wifi.conf`, otherwise parses 
 
 `packaging/build.sh` stages the tree under `packaging/deb/`, generates DEBIAN control/preinst/postinst/prerm/postrm inline (heredocs), and builds with `dpkg-deb`. Postinst enables/restarts the service and reloads udev rules (deliberately without replaying `add` events, which would re-provision from a stick left plugged in during an upgrade). Deps: python3, python3-flask, python3-waitress, network-manager, iproute2, iw. Old staged versions remain under `packaging/deb/` — do not edit those; they are build artifacts.
 
+**Bump `VERSION` whenever package contents change — never rebuild a released version in place.** Readers gate installs on `dpkg --compare-versions "$REMOTE_VER" gt "$INST_VER"` (reader-status-app `public/update_test.sh`); the version string is the only identity, and nothing compares checksums. Because the test is strictly greater-than, a same-version republish is actively skipped and any reader already on the old build stays there permanently. This also means a release cannot be rolled back by re-publishing an earlier version — fix forward with a higher one. Bump even for a one-line change, and even if the previous version was only staged briefly.
+
+When bumping, keep the version in sync across `packaging/build.sh` (the `VERSION` default), `README.md`, `VISION.md`, and this file — `grep -rn '<old-version>' --include='*.md' --include='*.sh' . | grep -v packaging/deb` finds them all. Leave historical statements alone (e.g. "`iw` is new in 0.6.0" stays as written). Then rebuild the deb and regenerate its `.sha256`.
+
 ### Target Environment Constraints
 
 - Root filesystem may be mounted read-only — scripts `mount -o remount,rw /` before touching it (`add_wifi.sh`, `preflight.sh`).
