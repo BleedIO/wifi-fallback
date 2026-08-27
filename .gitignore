@@ -1,1 +1,3 @@
 packaging/deb/
+__pycache__/
+*.pyc
