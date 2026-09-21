@@ -74,52 +74,48 @@ done
 # A superseded run leaves the trigger at `none` (see the trap below), so read
 # the default only after that and never restore to `none` — that would leave
 # the LED inert.
+# Record the resting state so the LED can be put back exactly as found. Do
+# not substitute a trigger of our own: on a Pi 5 both ACT and PWR sit at
+# `[none]` and are driven directly by brightness, so forcing e.g. `mmc0` here
+# would leave green flashing on SD-card activity — a behaviour change, not a
+# restore. Whatever the board did before provisioning is what it does after.
 DEFAULT_TRIGGER=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$LED/trigger" 2>/dev/null)
-if [[ -z "$DEFAULT_TRIGGER" || "$DEFAULT_TRIGGER" == "none" ]]; then
-    # Pick a stock activity trigger the kernel actually offers: mmc0 on older
-    # Pis, actpwr on a Pi 4/5. Writing an unsupported name is rejected and
-    # would leave the LED dark with no trigger at all.
-    for t in mmc0 actpwr default-on; do
-        grep -qw "$t" "$LED/trigger" 2>/dev/null && { DEFAULT_TRIGGER="$t"; break; }
-    done
-fi
+DEFAULT_BRIGHTNESS=$(cat "$LED/brightness" 2>/dev/null)
+[[ -n "${DEFAULT_BRIGHTNESS//[!0-9]/}" ]] || DEFAULT_BRIGHTNESS=0
 
+# Record red's resting state so it can be put back exactly as found. Do not
+# assume a trigger: on a Pi 5 PWR sits at `[none]` with brightness 0, i.e.
+# driven directly and normally unlit. Forcing `default-on` here would leave a
+# provisioned reader glowing red for good.
 RED_DEFAULT_TRIGGER=""
+RED_DEFAULT_BRIGHTNESS=0
 if [[ -n "$RED" ]]; then
     RED_DEFAULT_TRIGGER=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$RED/trigger" 2>/dev/null)
-    # `default-on` is the stock PWR behaviour: lit whenever the board is
-    # powered. Restoring to `none` would leave red dark and make a working
-    # reader look unpowered.
-    if [[ -z "$RED_DEFAULT_TRIGGER" || "$RED_DEFAULT_TRIGGER" == "none" ]]; then
-        grep -qw default-on "$RED/trigger" 2>/dev/null && RED_DEFAULT_TRIGGER=default-on
-    fi
+    RED_DEFAULT_BRIGHTNESS=$(cat "$RED/brightness" 2>/dev/null)
+    [[ -n "${RED_DEFAULT_BRIGHTNESS//[!0-9]/}" ]] || RED_DEFAULT_BRIGHTNESS=0
 fi
 
-# Put the LED back under its normal trigger. If that write is rejected the LED
-# would be left dark, so fall back to forcing it on: a lit LED is the board's
-# "powered" look and is always better than an apparently dead one.
+# Put both LEDs back exactly as they were found.
 restore_led() {
     [[ -n "$DEFAULT_TRIGGER" ]] && echo "$DEFAULT_TRIGGER" > "$LED/trigger" 2>/dev/null
-    local now
-    now=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$LED/trigger" 2>/dev/null)
-    if [[ -z "$now" || "$now" == "none" ]]; then
-        echo 1 > "$LED/brightness" 2>/dev/null
-    fi
-    # Red back to its powered-as-usual state, so the board is indistinguishable
-    # from one that was never provisioned — only the blink reported the failure.
+    # With trigger `none` the LED is driven directly, so brightness is the
+    # state that matters; write it after the trigger to keep that intact.
+    echo "$DEFAULT_BRIGHTNESS" > "$LED/brightness" 2>/dev/null
+    # Red back exactly as found, so the board is indistinguishable from one
+    # that was never provisioned — only the blink reported the failure.
     if [[ -n "$RED" ]]; then
-        if [[ -n "$RED_DEFAULT_TRIGGER" ]]; then
+        [[ -n "$RED_DEFAULT_TRIGGER" ]] && \
             echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
-        fi
-        now=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$RED/trigger" 2>/dev/null)
-        [[ -z "$now" || "$now" == "none" ]] && echo 1 > "$RED/brightness" 2>/dev/null
+        # With trigger `none` the LED is driven directly, so brightness is the
+        # state that matters; writing it after the trigger keeps that intact.
+        echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
     fi
 }
 
 # Superseded mid-pattern: leave green to the newer signal, which owns it now.
 # Red must still be released here — the successor only drives green, so a red
 # left mid-alternation would stay frozen under manual control.
-trap '[[ -n "$RED" && -n "$RED_DEFAULT_TRIGGER" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null; exit 0' TERM INT
+trap '[[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null; exit 0' TERM INT
 
 blink() {
     # $1 = number of on/off cycles, $2 = delay per half-cycle
