@@ -77,9 +77,23 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 
 `led_signal.sh` (installed to `/usr/bin/`) gives an operator with no screen a visual provisioning outcome on the board's activity LED (`/sys/class/leds/ACT`, falling back to `led0`):
 
-- `led_signal.sh start` — **2 rapid red+green blinks together**, then both LEDs back as found. Acknowledges that a provisioning attempt has begun, so the operator is not left with no feedback for the up-to-45s it runs.
+- `led_signal.sh start` — **2 rapid red+green blinks together, then slow green blinking** for as long as the attempt runs. It has no fixed length: the `ok`/`fail` signal supersedes the process and takes over the LED, so the slow blink is a live "working on it" indicator rather than a timed pattern. `WORK_MAX` (300s) only stops a runaway if no outcome ever arrives.
 - `led_signal.sh ok` — **green lit for 10s, 5 rapid blinks, dark for 10s, then green stays lit**. ACT rests dark on a Pi 5, so the hold is lit rather than dark — there would otherwise be nothing to see turn off. Green is deliberately left on afterwards as a "provisioned" state visible at a glance until the next reboot.
-- `led_signal.sh fail` — **red+green together, slow blink (0.5s) for 3 minutes**, then both LEDs back as found. Both lit at once reads as a rose/amber flash, unmistakable against the green-only success pattern. Alternating red/green was tried first and rejected: the two LEDs are adjacent on a Pi 5 and the eye blends them at 1Hz, so it looked the same but was harder to reason about. The red PWR LED is optional — with no writable red the pattern degrades to a green-only slow blink.
+- `led_signal.sh fail` — **red+green driven together, slow blink (0.5s) for 3 minutes**, then both LEDs back as found. On a Pi 5 this is *seen* as alternating red/green rather than as one rose flash — see "Why the failure signal looks alternating" below; the behaviour is accepted, not a bug. Either way it is unmistakable against the green-only success pattern. The red PWR LED is optional — with no writable red the pattern degrades to a green-only slow blink.
+
+### Why the failure signal looks alternating
+
+The `fail` pattern drives red and green **in the same direction** — both on, then both off — yet on a Pi 5 it is observed as *alternating* red/green rather than as a single rose/amber flash. This is expected, and the code should not be changed to chase it.
+
+What was measured on a reader (`srv-mesh4`, Pi 5 Model B Rev 1.0):
+
+- The two sysfs writes are **under 1ms apart** (`ACT` then `PWR`, ~800µs and ~650µs respectively) — far below the ~50ms the eye needs to resolve two events as sequential. The pattern is not alternating in software.
+- Sampling `brightness` at 0.05s shows only `GR` (both lit) and `--` (both dark). No frame ever shows one LED lit alone.
+- Held statically, both LEDs report lit simultaneously (`ACT=255 PWR=255`), so this is not a case of one write cancelling the other.
+
+The cause is physical, not logical. `ACT` and `PWR` are separate single-colour GPIO LEDs (`max_brightness=1`, no PWM) sitting side by side on the board rather than a single RGB package. Two adjacent point sources do not blend into one colour the way an RGB emitter does; depending on viewing angle and distance, the eye picks out whichever is brighter at each flash and reads the pair as alternation.
+
+An earlier version alternated the LEDs explicitly (red on/green off, then green on/red off). It looked **the same** to the observer. Driving them together was kept because it is simpler and its intent is unambiguous in the code. The practical consequence is what matters and it holds either way: the failure signal is visually distinct from the green-only success pattern, which is the point.
 
 Both patterns end by putting each LED back exactly as it was found — trigger and brightness are both recorded up front and rewritten afterwards. Nothing is substituted: on a Pi 5 both `ACT` and `PWR` sit at `[none]` and are driven directly by brightness (ACT lit, PWR dark), so forcing a trigger such as `mmc0` would leave green flashing on SD-card activity — a behaviour change, not a restore. Only the blink reports the outcome; nothing is left lit or dark afterwards to be misread later.
 

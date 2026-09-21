@@ -1,16 +1,27 @@
 #!/bin/bash
 # Visual provisioning feedback on the board's activity LED.
 #
-#   led_signal.sh start -> 2 rapid red+green blinks together, then both LEDs
-#                          go back as found (provisioning attempt beginning)
-#   led_signal.sh ok    -> off 10s, 5 rapid blinks, off 10s, then the LED's
-#                          default trigger is restored (provisioned)
-#   led_signal.sh fail  -> red+green together, slow blink for 3 minutes (reads
-#                          as a rose/amber flash), then both LEDs go back as
-#                          found. Alternating red/green was tried first: the
-#                          two LEDs are adjacent on a Pi 5 and the eye blends
-#                          them at 1Hz, so it looked identical to this but was
-#                          harder to reason about.
+#   led_signal.sh start -> 2 rapid red+green blinks together, then slow green
+#                          blinking for as long as the attempt runs. The
+#                          outcome signal supersedes it (see below), so this
+#                          is a "working on it" indicator, not a fixed-length
+#                          pattern: it ends when ok/fail fires.
+#   led_signal.sh ok    -> green lit 10s, 5 rapid blinks, dark 10s, then green
+#                          is left LIT as the resting "provisioned" state.
+#                          The first hold is lit rather than dark because ACT
+#                          rests dark on a Pi 5 — a dark hold is invisible.
+#   led_signal.sh fail  -> red+green driven on together, then both off, slow
+#                          blink for 3 minutes, then both LEDs go back as
+#                          found.
+#
+#                          NOTE ON WHAT THIS LOOKS LIKE: on a Pi 5 this is
+#                          observed as ALTERNATING red/green, not as a single
+#                          rose/amber flash, and that is expected — see the
+#                          "Why the failure signal looks alternating" section
+#                          in ARCHITECTURE.md. The code drives both LEDs in
+#                          the same direction; do not "fix" it by alternating
+#                          them explicitly, which is what an earlier version
+#                          did and produced the same visual result.
 #
 # Runs detached (setsid) so callers return their real status immediately: a
 # 3 minute blocking blink would outrun usb-wifi@.service's 250s start timeout.
@@ -59,6 +70,8 @@ OK_PAUSE=10         # dark gap before and after the blinks, so the burst reads
                     # as a deliberate signal rather than ordinary disk activity
 START_COUNT=2       # rapid red+green blinks marking the start of an attempt
 START_DELAY=0.1     # rapid
+WORK_DELAY=0.8      # slow green blink while the attempt is in progress
+WORK_MAX=300        # safety stop: never blink forever if no outcome arrives
 
 # Stop any pattern still running so the newest result is the one displayed.
 # Match the exact process name and skip our own PID: a `-f` (full command
@@ -138,8 +151,9 @@ echo none > "$LED/trigger" 2>/dev/null
 
 case "$MODE" in
     start)
-        # Both LEDs together, so the acknowledgement cannot be mistaken for
-        # either outcome pattern (success is green-only, failure alternates).
+        # Both LEDs together: a brief rose flicker marking "stick seen,
+        # starting". The sustained rose flash of `fail` is the same colour but
+        # runs for 3 minutes, so the two cannot be confused in practice.
         [[ -n "$RED" ]] && echo none > "$RED/trigger" 2>/dev/null
         for ((i = 0; i < START_COUNT; i++)); do
             echo 1 > "$LED/brightness" 2>/dev/null
@@ -149,8 +163,15 @@ case "$MODE" in
             [[ -n "$RED" ]] && echo 0 > "$RED/brightness" 2>/dev/null
             sleep "$START_DELAY"
         done
-        # Straight back to normal: the outcome pattern follows later and owns
-        # the LEDs from then on.
+        # Red is done; green now blinks slowly to show the attempt is running.
+        [[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
+        # No fixed length: the ok/fail signal supersedes this process and takes
+        # over the LED. WORK_MAX only stops a runaway if no outcome ever
+        # arrives (caller killed mid-attempt), so the LED cannot blink forever.
+        SECONDS=0
+        while (( SECONDS < WORK_MAX )); do
+            blink 1 "$WORK_DELAY"
+        done
         restore_led
         ;;
     ok)
