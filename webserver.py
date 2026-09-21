@@ -8,6 +8,8 @@ import json
 import traceback
 from waitress import serve
 import socket
+import time
+import threading
 import subprocess  # ✅ Add this at the top with other imports
 from werkzeug.utils import secure_filename
 from functools import wraps  # ✅ for auth decorator
@@ -311,6 +313,40 @@ def logout_basic():
     g.is_authenticated = False
     return _logout_page()
 
+def wlan_connected_to(ssid):
+    """True when wlan0 actually joined `ssid` and holds a routable IP.
+
+    `nmcli connection up` returns before DHCP finishes, so poll briefly rather
+    than trust it. A link-local 169.254.x.x address means DHCP failed and is
+    treated as a failure, matching usb_wifi.sh.
+    """
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        joined = subprocess.run(
+            "iw dev wlan0 link", shell=True, capture_output=True, text=True
+        ).stdout
+        # Exact line match: a substring test would report success for "Corp"
+        # when wlan0 actually joined "CorpNet", lighting the steady-on
+        # "provisioned" LED for a reader that is on the wrong network.
+        if any(l.strip()[len("SSID: "):] == ssid
+               for l in joined.splitlines() if l.strip().startswith("SSID: ")):
+            ip = subprocess.run(
+                "nmcli -g IP4.ADDRESS device show wlan0",
+                shell=True, capture_output=True, text=True
+            ).stdout.strip().split("\n")[0].split("/")[0]
+            if ip and not ip.startswith("169.254."):
+                return True
+        time.sleep(1)
+    return False
+
+def signal_wifi_result(ssid):
+    """Verify the connection off the request thread and blink the outcome."""
+    try:
+        mode = "ok" if wlan_connected_to(ssid) else "fail"
+        os.system(f"/usr/bin/led_signal.sh {mode}")
+    except Exception:
+        log("❌ Exception in LED result signalling:\n" + traceback.format_exc())
+
 @app.route('/wifi', methods=['GET', 'POST'])
 @require_auth
 def wifi():
@@ -337,6 +373,15 @@ def wifi():
             os.system("nmcli connection down bleedio-ap 2>/dev/null")
             os.system("nmcli radio wifi on")
             os.system(f"nmcli connection up '{ssid}' 2>/dev/null")
+
+            # Visual feedback on the activity LED for an operator who cannot
+            # see this page (they drop off the hotspot the moment the reader
+            # switches networks). Verifying takes up to 20s, so it runs on a
+            # background thread: holding a waitress worker that long would tie
+            # up the small default pool for a response the client will usually
+            # never receive anyway, having just been moved to the new network.
+            threading.Thread(target=signal_wifi_result, args=(ssid,),
+                             daemon=True).start()
 
             log("✅ Wi-Fi connection created via nmcli and activation attempted")
             return redirect(url_for('confirmation'))

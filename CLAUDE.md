@@ -29,10 +29,10 @@ bash -n ap_mode.sh add_wifi.sh usb_wifi.sh preflight.sh start.sh watch_ip.sh ins
 
 # Build the deb package (default version is set in packaging/build.sh)
 chmod +x packaging/build.sh
-VERSION=0.6.2 packaging/build.sh
+VERSION=0.6.3 packaging/build.sh
 
 # Install on a reader
-sudo dpkg -i packaging/wifi-fallback_0.6.2_$(dpkg --print-architecture).deb
+sudo dpkg -i packaging/wifi-fallback_0.6.3_$(dpkg --print-architecture).deb
 # if deps missing:
 sudo apt -f -y install
 
@@ -72,7 +72,7 @@ mounts the stick read-only, exits silently if no `/wifi.conf`, otherwise parses 
 | Repo file | Installed to |
 |---|---|
 | `ap_mode.sh`, `webserver.py`, `preflight.sh`, `start.sh`, `watch_ip.sh`, `install.sh`, `static/`, `templates/` | `/opt/wifi-fallback/` |
-| `add_wifi.sh`, `usb_wifi.sh` | `/usr/bin/` |
+| `add_wifi.sh`, `usb_wifi.sh`, `led_signal.sh` | `/usr/bin/` |
 | `ap_mode.service` | `/etc/systemd/system/wifi-fallback.service` (renamed at build) |
 | `usb-wifi@.service` | `/etc/systemd/system/` |
 | `99-usb-wifi.rules` | `/etc/udev/rules.d/` |

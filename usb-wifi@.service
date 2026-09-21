@@ -18,3 +18,14 @@ ExecStart=/usr/bin/usb_wifi.sh /dev/%i
 # nmcli/iw calls — budget generously so the script always reaches its own
 # error path and reports a real status instead of being killed.
 TimeoutStartSec=250
+# The LED feedback pattern (led_signal.sh) detaches and outlives this oneshot
+# by design — the failure pattern runs for 3 minutes. control-group (the
+# default) SIGTERMs the whole cgroup on stop, which the blinker's TERM trap
+# turns into a silent exit with the LED's trigger still cleared; mixed then
+# SIGKILLs every remaining process as soon as the main process exits, which
+# cannot be trapped at all. Either way the activity LED is left dark and
+# inert. `process` is the only mode that kills the main process alone. Letting
+# the blinker escape the unit's lifecycle is the intent here; usb_wifi.sh is
+# still the main process, so TimeoutStartSec and its `trap cleanup EXIT`
+# unmount are unaffected.
+KillMode=process

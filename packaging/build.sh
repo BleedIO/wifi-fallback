@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.6.2}"                   # or inject via: VERSION=0.6.3 packaging/build.sh
+VERSION="${VERSION:-0.6.3}"                   # or inject via: VERSION=0.6.4 packaging/build.sh
 # arm64 / armhf / amd64, etc. Defaults to the build host, but the package is
 # pure shell/Python with no compiled code, so it can be cross-built for a
 # reader from any host: ARCH=arm64 packaging/build.sh
@@ -21,6 +21,7 @@ mkdir -p "$STAGE/usr/bin"
 # app files (copy your tree exactly)
 cp -a ap_mode.sh webserver.py preflight.sh start.sh watch_ip.sh install.sh "$STAGE/opt/wifi-fallback/"
 cp -a add_wifi.sh "$STAGE/usr/bin/add_wifi.sh"
+cp -a led_signal.sh "$STAGE/usr/bin/led_signal.sh"
 cp -a static "$STAGE/opt/wifi-fallback/"
 cp -a templates "$STAGE/opt/wifi-fallback/"
 # install the unit into the correct system path
@@ -39,6 +40,7 @@ chmod 755 "$STAGE/opt/wifi-fallback"/install.sh
 chmod 755 "$STAGE/opt/wifi-fallback"/start.sh
 chmod 755 "$STAGE/opt/wifi-fallback"/preflight.sh
 chmod 755 "$STAGE/usr/bin/add_wifi.sh"
+chmod 755 "$STAGE/usr/bin/led_signal.sh"
 chmod 755 "$STAGE/usr/bin/usb_wifi.sh"
 chmod 644 "$STAGE/etc/systemd/system/usb-wifi@.service"
 chmod 644 "$STAGE/etc/udev/rules.d/99-usb-wifi.rules"

@@ -73,12 +73,23 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 
 `usb_wifi.sh` calls it. **The portal does not** — `webserver.py`'s `/wifi` route runs its own inline `nmcli` calls via `os.system` (pre-existing, not changed by the USB feature). The two implementations have drifted: the portal's copy restarts NetworkManager unconditionally. New nmcli logic should go in `add_wifi.sh`, not be duplicated further; unifying the portal onto `add_wifi.sh` is tracked in VISION.md.
 
+## LED Provisioning Feedback
+
+`led_signal.sh` (installed to `/usr/bin/`) gives an operator with no screen a visual provisioning outcome on the board's activity LED (`/sys/class/leds/ACT`, falling back to `led0`):
+
+- `led_signal.sh ok` — ~10 rapid blinks, then **steady on**. The resting steady state persists until reboot, so an operator arriving late still sees the result.
+- `led_signal.sh fail` — **slow blink (0.5s) for 3 minutes**, then the LED's original trigger (e.g. `mmc0`) is restored and normal activity indication resumes.
+
+Both patterns fork into the background, so callers return their real status immediately — a blocking 3-minute blink would outrun `usb-wifi@.service`'s 250s start timeout and be SIGKILLed mid-pattern, leaving the LED stuck. On a board with no writable LED the script exits 0 silently: this is cosmetic feedback and must never fail a provisioning run.
+
+Both flows signal. `usb_wifi.sh` calls it on every terminal outcome (parse error, profile-creation failure, connect failure, success). The portal's `/wifi` route calls it after `nmcli connection up`, gated on a new `wlan_connected_to()` helper that polls `iw dev wlan0 link` plus a non-link-local IP for up to 20s — `nmcli connection up` returns before DHCP finishes, so without that check every submission would blink success. This matters most in the portal, where the operator is dropped off the hotspot the moment the reader switches networks and never sees the confirmation page.
+
 ## File → Install Path Map
 
 | Repo file | Installed to |
 |---|---|
 | `ap_mode.sh`, `webserver.py`, `preflight.sh`, `start.sh`, `watch_ip.sh`, `install.sh`, `static/`, `templates/` | `/opt/wifi-fallback/` |
-| `add_wifi.sh`, `usb_wifi.sh` | `/usr/bin/` |
+| `add_wifi.sh`, `usb_wifi.sh`, `led_signal.sh` | `/usr/bin/` |
 | `ap_mode.service` | `/etc/systemd/system/wifi-fallback.service` (renamed at build) |
 | `usb-wifi@.service` | `/etc/systemd/system/` |
 | `99-usb-wifi.rules` | `/etc/udev/rules.d/` |

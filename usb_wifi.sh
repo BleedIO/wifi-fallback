@@ -24,6 +24,9 @@ CONNECT_WAIT=45   # seconds to wait for connection + IP
 LOCK_WAIT=120     # seconds to wait for another partition's run to finish
 
 log() { echo "usb-wifi[$DEV]: $*"; }   # goes to the journal via systemd
+# Visual outcome on the activity LED for an operator with no screen/journal.
+# Backgrounds itself, so it never delays or fails the run.
+led() { /usr/bin/led_signal.sh "$1" 2>/dev/null || true; }
 
 # Serialize: two partitions on one stick (or a fast replug) must not run two
 # connect attempts concurrently. Bounded wait so a second partition reports a
@@ -47,7 +50,10 @@ mkdir -p "$MNT"
 
 # --- 1. polite read-only probe ---------------------------------------------
 if ! mount -o ro "$DEV" "$MNT" 2>/dev/null; then
+    # A stick that cannot be read looks identical to one that was never
+    # noticed. Signal it: the operator has no other way to tell them apart.
     log "cannot mount, skipping"
+    led fail
     rmdir "$MNT" 2>/dev/null || true
     exit 0
 fi
@@ -128,6 +134,7 @@ write_results() {
 
 if [[ -z "$SSID" ]]; then
     log "wifi.conf present but no SSID= line"
+    led fail
     write_results FAIL "error='wifi.conf has no SSID= line'" || true
     exit 1
 fi
@@ -136,6 +143,7 @@ if [[ $HAS_PASSWORD_LINE == 1 && -z "$PASSWORD" ]]; then
     # mistake, not a request for an open network — refuse rather than
     # silently create an unsecured profile.
     log "wifi.conf has an empty PASSWORD= line; refusing (omit the line entirely for an open network)"
+    led fail
     write_results FAIL "error='PASSWORD= present but empty; omit the line for an open network'" || true
     exit 1
 fi
@@ -157,6 +165,7 @@ fi
 # failure that must not be reported as a 45s connection timeout.
 if [[ $ADD_RC -ne 0 ]]; then
     log "failed to create profile for '$SSID': $(echo "$ERR" | tail -3 | tr '\n' ' ')"
+    led fail
     write_results FAIL "error='profile creation failed: $(echo "$ERR" | tail -3 | tr '\n' ' ')'" || true
     exit 1
 fi
@@ -202,10 +211,12 @@ done
 # --- 6. write results back to the stick -------------------------------------
 if [[ "$OK" == 1 ]]; then
     log "connected to '$SSID' ip=$IP"
+    led ok
     write_results OK "ip=$IP" || true
     exit 0
 fi
 
 log "failed to connect to '$SSID': $FAILREASON"
+led fail
 write_results FAIL "error='$FAILREASON; $(echo "$ERR" | tail -3 | tr '\n' ' ')'" || true
 exit 1
