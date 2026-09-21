@@ -6,10 +6,12 @@
 #                          outcome signal supersedes it (see below), so this
 #                          is a "working on it" indicator, not a fixed-length
 #                          pattern: it ends when ok/fail fires.
-#   led_signal.sh ok    -> green lit 10s, 5 rapid blinks, dark 10s, then green
-#                          is left LIT as the resting "provisioned" state.
-#                          The first hold is lit rather than dark because ACT
-#                          rests dark on a Pi 5 — a dark hold is invisible.
+#   led_signal.sh ok    -> fast green blinking for 10s, then steady green as
+#                          the resting "provisioned" state. Same shape as the
+#                          failure pattern (sustained blink, then a resting
+#                          state) at the same rapid rate as the start blinks,
+#                          so the two outcomes differ only by colour and
+#                          ending — not by rhythm.
 #   led_signal.sh fail  -> red+green driven on together, then both off, slow
 #                          blink for 3 minutes, then both LEDs go back as
 #                          found.
@@ -64,10 +66,8 @@ done
 
 FAIL_DURATION=180   # seconds of slow blinking on failure
 FAIL_DELAY=0.5      # slow
-OK_COUNT=5
-OK_DELAY=0.1        # rapid
-OK_PAUSE=10         # dark gap before and after the blinks, so the burst reads
-                    # as a deliberate signal rather than ordinary disk activity
+OK_DURATION=10      # seconds of fast green blinking on success
+OK_DELAY=0.1        # rapid — same rate as the start blinks
 START_COUNT=2       # rapid red+green blinks marking the start of an attempt
 START_DELAY=0.1     # rapid
 WORK_DELAY=0.8      # slow green blink while the attempt is in progress
@@ -175,19 +175,16 @@ case "$MODE" in
         restore_led
         ;;
     ok)
-        # Hold green ON through the first gap rather than dark. ACT rests dark
-        # on a Pi 5, so a dark gap is invisible — there is nothing to see turn
-        # off. A lit hold, then the blink burst, then a dark hold gives the
-        # operator two clear edges either side of the blinks.
-        echo 1 > "$LED/brightness" 2>/dev/null
-        sleep "$OK_PAUSE"
-        blink "$OK_COUNT" "$OK_DELAY"
-        echo 0 > "$LED/brightness" 2>/dev/null
-        sleep "$OK_PAUSE"
-        # Green stays lit as the resting "provisioned" state. ACT rests dark
-        # on a Pi 5, so this is a deliberate change to the board's normal
-        # appearance — that is the point: it is visible at a glance, and
-        # survives until the next reboot for an operator arriving late.
+        # Wall clock, so the burst lasts its full length regardless of how
+        # long each write takes.
+        SECONDS=0
+        while (( SECONDS < OK_DURATION )); do
+            blink 1 "$OK_DELAY"
+        done
+        # Steady green is the resting "provisioned" state. ACT rests dark on a
+        # Pi 5, so this deliberately departs from restore-as-found: that is
+        # the point — it is visible at a glance and survives until reboot for
+        # an operator arriving late.
         [[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
         echo 1 > "$LED/brightness" 2>/dev/null
         ;;
