@@ -29,10 +29,10 @@ bash -n ap_mode.sh add_wifi.sh usb_wifi.sh preflight.sh start.sh watch_ip.sh ins
 
 # Build the deb package (default version is set in packaging/build.sh)
 chmod +x packaging/build.sh
-VERSION=0.6.6 packaging/build.sh
+VERSION=0.6.7 packaging/build.sh
 
 # Install on a reader
-sudo dpkg -i packaging/wifi-fallback_0.6.6_$(dpkg --print-architecture).deb
+sudo dpkg -i packaging/wifi-fallback_0.6.7_$(dpkg --print-architecture).deb
 # if deps missing:
 sudo apt -f -y install
 

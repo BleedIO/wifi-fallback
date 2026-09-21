@@ -1,12 +1,16 @@
 #!/bin/bash
 # Visual provisioning feedback on the board's activity LED.
 #
+#   led_signal.sh start -> 2 rapid red+green blinks together, then both LEDs
+#                          go back as found (provisioning attempt beginning)
 #   led_signal.sh ok    -> off 10s, 5 rapid blinks, off 10s, then the LED's
 #                          default trigger is restored (provisioned)
-#   led_signal.sh fail  -> red/green alternating slow blink for 3 minutes,
-#                          then both LEDs go back to normal (provisioning
-#                          failed). The board must end up looking powered as
-#                          usual — only the blink reports the failure.
+#   led_signal.sh fail  -> red+green together, slow blink for 3 minutes (reads
+#                          as a rose/amber flash), then both LEDs go back as
+#                          found. Alternating red/green was tried first: the
+#                          two LEDs are adjacent on a Pi 5 and the eye blends
+#                          them at 1Hz, so it looked identical to this but was
+#                          harder to reason about.
 #
 # Runs detached (setsid) so callers return their real status immediately: a
 # 3 minute blocking blink would outrun usb-wifi@.service's 250s start timeout.
@@ -21,8 +25,8 @@ set -uo pipefail
 MODE="${1:-}"
 # Validate before detaching — past the re-exec the caller only sees exit 0.
 case "$MODE" in
-    ok|fail) ;;
-    *) echo "Usage: led_signal.sh ok|fail" >&2; exit 1 ;;
+    start|ok|fail) ;;
+    *) echo "Usage: led_signal.sh start|ok|fail" >&2; exit 1 ;;
 esac
 
 if [[ "${LED_SIGNAL_DETACHED:-0}" != "1" ]] && command -v setsid >/dev/null 2>&1; then
@@ -53,6 +57,8 @@ OK_COUNT=5
 OK_DELAY=0.1        # rapid
 OK_PAUSE=10         # dark gap before and after the blinks, so the burst reads
                     # as a deliberate signal rather than ordinary disk activity
+START_COUNT=2       # rapid red+green blinks marking the start of an attempt
+START_DELAY=0.1     # rapid
 
 # Stop any pattern still running so the newest result is the one displayed.
 # Match the exact process name and skip our own PID: a `-f` (full command
@@ -131,38 +137,54 @@ blink() {
 echo none > "$LED/trigger" 2>/dev/null
 
 case "$MODE" in
+    start)
+        # Both LEDs together, so the acknowledgement cannot be mistaken for
+        # either outcome pattern (success is green-only, failure alternates).
+        [[ -n "$RED" ]] && echo none > "$RED/trigger" 2>/dev/null
+        for ((i = 0; i < START_COUNT; i++)); do
+            echo 1 > "$LED/brightness" 2>/dev/null
+            [[ -n "$RED" ]] && echo 1 > "$RED/brightness" 2>/dev/null
+            sleep "$START_DELAY"
+            echo 0 > "$LED/brightness" 2>/dev/null
+            [[ -n "$RED" ]] && echo 0 > "$RED/brightness" 2>/dev/null
+            sleep "$START_DELAY"
+        done
+        # Straight back to normal: the outcome pattern follows later and owns
+        # the LEDs from then on.
+        restore_led
+        ;;
     ok)
-        echo 0 > "$LED/brightness" 2>/dev/null
+        # Hold green ON through the first gap rather than dark. ACT rests dark
+        # on a Pi 5, so a dark gap is invisible — there is nothing to see turn
+        # off. A lit hold, then the blink burst, then a dark hold gives the
+        # operator two clear edges either side of the blinks.
+        echo 1 > "$LED/brightness" 2>/dev/null
         sleep "$OK_PAUSE"
         blink "$OK_COUNT" "$OK_DELAY"
         echo 0 > "$LED/brightness" 2>/dev/null
         sleep "$OK_PAUSE"
-        # Hand the LED back to its normal trigger: that is the board's usual
-        # powered indication. Leaving it forced on with trigger=none would
-        # freeze it under manual control, and anything that later cleared
-        # brightness would strand it dark with no trigger to drive it.
-        restore_led
+        # Green stays lit as the resting "provisioned" state. ACT rests dark
+        # on a Pi 5, so this is a deliberate change to the board's normal
+        # appearance — that is the point: it is visible at a glance, and
+        # survives until the next reboot for an operator arriving late.
+        [[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
+        echo 1 > "$LED/brightness" 2>/dev/null
         ;;
     fail)
-        # Red must be under manual control to alternate against green.
+        # Red must be under manual control to be driven alongside green.
         [[ -n "$RED" ]] && echo none > "$RED/trigger" 2>/dev/null
         # Wall clock, so the pattern lasts 3 minutes regardless of write time.
         SECONDS=0
         while (( SECONDS < FAIL_DURATION )); do
-            if [[ -n "$RED" ]]; then
-                # Alternate: red on/green off, then green on/red off.
-                echo 1 > "$RED/brightness" 2>/dev/null
-                echo 0 > "$LED/brightness" 2>/dev/null
-                sleep "$FAIL_DELAY"
-                echo 0 > "$RED/brightness" 2>/dev/null
-                echo 1 > "$LED/brightness" 2>/dev/null
-                sleep "$FAIL_DELAY"
-            else
-                # No controllable red: green-only slow blink.
-                blink 1 "$FAIL_DELAY"
-            fi
+            # Both together, then both dark: a rose/amber flash that cannot be
+            # confused with the green-only success pattern.
+            echo 1 > "$LED/brightness" 2>/dev/null
+            [[ -n "$RED" ]] && echo 1 > "$RED/brightness" 2>/dev/null
+            sleep "$FAIL_DELAY"
+            echo 0 > "$LED/brightness" 2>/dev/null
+            [[ -n "$RED" ]] && echo 0 > "$RED/brightness" 2>/dev/null
+            sleep "$FAIL_DELAY"
         done
-        echo 0 > "$LED/brightness" 2>/dev/null
         restore_led
         ;;
 esac

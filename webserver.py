@@ -357,6 +357,11 @@ def wifi():
             password = request.form['password'].strip()
             log(f"📥 Received credentials: SSID='{ssid}'")
 
+            # Acknowledge the submission before the attempt: the operator drops
+            # off the hotspot as soon as the reader switches networks, so the
+            # LED is the only feedback they reliably get.
+            os.system("/usr/bin/led_signal.sh start")
+
             # Delete old profile if exists
             os.system(f"mount -o remount,rw / ")  # in case root is read-only
             os.system(f"systemctl restart NetworkManager")  # in case root is read-only

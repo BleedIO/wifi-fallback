@@ -77,8 +77,9 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 
 `led_signal.sh` (installed to `/usr/bin/`) gives an operator with no screen a visual provisioning outcome on the board's activity LED (`/sys/class/leds/ACT`, falling back to `led0`):
 
-- `led_signal.sh ok` — **off for 10s, 5 rapid blinks, off for 10s**, then the LED's original trigger is restored. The dark gaps either side make the burst read as a deliberate signal rather than ordinary disk activity.
-- `led_signal.sh fail` — **red/green alternating slow blink (0.5s) for 3 minutes**, then both LEDs go back to normal. The red PWR LED is optional: on several Pi models it is wired to the power rail and not software-controllable, so with no writable red the pattern degrades to a green-only slow blink.
+- `led_signal.sh start` — **2 rapid red+green blinks together**, then both LEDs back as found. Acknowledges that a provisioning attempt has begun, so the operator is not left with no feedback for the up-to-45s it runs.
+- `led_signal.sh ok` — **green lit for 10s, 5 rapid blinks, dark for 10s, then green stays lit**. ACT rests dark on a Pi 5, so the hold is lit rather than dark — there would otherwise be nothing to see turn off. Green is deliberately left on afterwards as a "provisioned" state visible at a glance until the next reboot.
+- `led_signal.sh fail` — **red+green together, slow blink (0.5s) for 3 minutes**, then both LEDs back as found. Both lit at once reads as a rose/amber flash, unmistakable against the green-only success pattern. Alternating red/green was tried first and rejected: the two LEDs are adjacent on a Pi 5 and the eye blends them at 1Hz, so it looked the same but was harder to reason about. The red PWR LED is optional — with no writable red the pattern degrades to a green-only slow blink.
 
 Both patterns end by putting each LED back exactly as it was found — trigger and brightness are both recorded up front and rewritten afterwards. Nothing is substituted: on a Pi 5 both `ACT` and `PWR` sit at `[none]` and are driven directly by brightness (ACT lit, PWR dark), so forcing a trigger such as `mmc0` would leave green flashing on SD-card activity — a behaviour change, not a restore. Only the blink reports the outcome; nothing is left lit or dark afterwards to be misread later.
 

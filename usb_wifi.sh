@@ -150,6 +150,9 @@ fi
 
 # --- 4. provision via the existing nmcli wrapper ----------------------------
 log "provisioning SSID '$SSID'"
+# Acknowledge the stick before the attempt: without this the operator has no
+# feedback until the outcome, which on a failure is 45s away.
+led start
 if [[ -n "$PASSWORD" ]]; then
     # Password on stdin, not argv: it must not be visible in `ps` on the reader.
     ERR=$(printf '%s\n' "$PASSWORD" \
