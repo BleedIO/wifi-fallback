@@ -77,8 +77,10 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 
 `led_signal.sh` (installed to `/usr/bin/`) gives an operator with no screen a visual provisioning outcome on the board's activity LED (`/sys/class/leds/ACT`, falling back to `led0`):
 
-- `led_signal.sh ok` — ~10 rapid blinks, then **steady on**. The resting steady state persists until reboot, so an operator arriving late still sees the result.
-- `led_signal.sh fail` — **slow blink (0.5s) for 3 minutes**, then the LED's original trigger (e.g. `mmc0`) is restored and normal activity indication resumes.
+- `led_signal.sh ok` — **off for 10s, 5 rapid blinks, off for 10s**, then the LED's original trigger is restored. The dark gaps either side make the burst read as a deliberate signal rather than ordinary disk activity.
+- `led_signal.sh fail` — **red/green alternating slow blink (0.5s) for 3 minutes**, then both LEDs go back to normal. The red PWR LED is optional: on several Pi models it is wired to the power rail and not software-controllable, so with no writable red the pattern degrades to a green-only slow blink.
+
+Both patterns end with the board looking powered as usual — green back on its activity trigger, red back to `default-on`. Only the blink reports the outcome; nothing is left lit or dark afterwards to be misread later. Both end by restoring a live trigger rather than forcing the LED on: leaving it at `trigger=none` freezes it under manual control, and anything that later clears brightness strands it dark. If the original trigger cannot be read or re-applied, the script picks one the kernel actually offers (`mmc0` on older Pis, `actpwr` on a Pi 4/5) and, failing that, forces the LED on.
 
 Both patterns fork into the background, so callers return their real status immediately — a blocking 3-minute blink would outrun `usb-wifi@.service`'s 250s start timeout and be SIGKILLed mid-pattern, leaving the LED stuck. On a board with no writable LED the script exits 0 silently: this is cosmetic feedback and must never fail a provisioning run.
 
