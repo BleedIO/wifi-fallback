@@ -93,48 +93,44 @@ done
 # A superseded run leaves the trigger at `none` (see the trap below), so read
 # the default only after that and never restore to `none` — that would leave
 # the LED inert.
-# Record the resting state so the LED can be put back exactly as found. Do
-# not substitute a trigger of our own: on a Pi 5 both ACT and PWR sit at
-# `[none]` and are driven directly by brightness, so forcing e.g. `mmc0` here
-# would leave green flashing on SD-card activity — a behaviour change, not a
-# restore. Whatever the board did before provisioning is what it does after.
-DEFAULT_TRIGGER=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$LED/trigger" 2>/dev/null)
-DEFAULT_BRIGHTNESS=$(cat "$LED/brightness" 2>/dev/null)
-[[ -n "${DEFAULT_BRIGHTNESS//[!0-9]/}" ]] || DEFAULT_BRIGHTNESS=0
-
-# Record red's resting state so it can be put back exactly as found. Do not
-# assume a trigger: on a Pi 5 PWR sits at `[none]` with brightness 0, i.e.
-# driven directly and normally unlit. Forcing `default-on` here would leave a
-# provisioned reader glowing red for good.
-RED_DEFAULT_TRIGGER=""
-RED_DEFAULT_BRIGHTNESS=0
-if [[ -n "$RED" ]]; then
-    RED_DEFAULT_TRIGGER=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$RED/trigger" 2>/dev/null)
-    RED_DEFAULT_BRIGHTNESS=$(cat "$RED/brightness" 2>/dev/null)
-    [[ -n "${RED_DEFAULT_BRIGHTNESS//[!0-9]/}" ]] || RED_DEFAULT_BRIGHTNESS=0
+# Restoring means putting each LED back under the trigger the board ships
+# with, NOT whatever it happens to be set to now: a previous run of this
+# script leaves the trigger at `none`, so reading the live value and calling
+# it the default is how a single interrupted run permanently strands the LED.
+# The device tree is the authoritative source for the factory value
+# (/proc/device-tree/leds/led-act/linux,default-trigger — `mmc0` for ACT and
+# `none` for PWR on a Pi 5).
+dt_trigger() {
+    # $1 = device-tree node name (led-act / led-pwr)
+    tr -d '\0' < "/proc/device-tree/leds/$1/linux,default-trigger" 2>/dev/null
+}
+DEFAULT_TRIGGER=$(dt_trigger led-act)
+RED_DEFAULT_TRIGGER=$(dt_trigger led-pwr)
+# Fall back to the live value only if the device tree cannot be read, and
+# never adopt `none` for green — that is the state this script itself leaves
+# behind, not a board default.
+if [[ -z "$DEFAULT_TRIGGER" ]]; then
+    DEFAULT_TRIGGER=$(sed -n 's/.*\[\(.*\)\].*/\1/p' "$LED/trigger" 2>/dev/null)
+    [[ -n "$DEFAULT_TRIGGER" && "$DEFAULT_TRIGGER" != "none" ]] || DEFAULT_TRIGGER=mmc0
 fi
+[[ -n "$RED_DEFAULT_TRIGGER" ]] || RED_DEFAULT_TRIGGER=none
 
-# Put both LEDs back exactly as they were found.
+# Put both LEDs back under their factory triggers.
+#
+# The trigger is written LAST and nothing is written to brightness after it:
+# per Documentation/ABI/testing/sysfs-class-led, writing 0 to brightness
+# clears the active trigger, so a trailing brightness write silently undoes
+# the restore.
 restore_led() {
-    [[ -n "$DEFAULT_TRIGGER" ]] && echo "$DEFAULT_TRIGGER" > "$LED/trigger" 2>/dev/null
-    # With trigger `none` the LED is driven directly, so brightness is the
-    # state that matters; write it after the trigger to keep that intact.
-    echo "$DEFAULT_BRIGHTNESS" > "$LED/brightness" 2>/dev/null
-    # Red back exactly as found, so the board is indistinguishable from one
-    # that was never provisioned — only the blink reported the failure.
-    if [[ -n "$RED" ]]; then
-        [[ -n "$RED_DEFAULT_TRIGGER" ]] && \
-            echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
-        # With trigger `none` the LED is driven directly, so brightness is the
-        # state that matters; writing it after the trigger keeps that intact.
-        echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
-    fi
+    echo "$DEFAULT_TRIGGER" > "$LED/trigger" 2>/dev/null
+    [[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
+    return 0
 }
 
 # Superseded mid-pattern: leave green to the newer signal, which owns it now.
 # Red must still be released here — the successor only drives green, so a red
 # left mid-alternation would stay frozen under manual control.
-trap '[[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null; exit 0' TERM INT
+trap '[[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null; exit 0' TERM INT
 
 blink() {
     # $1 = number of on/off cycles, $2 = delay per half-cycle
@@ -164,7 +160,7 @@ case "$MODE" in
             sleep "$START_DELAY"
         done
         # Red is done; green now blinks slowly to show the attempt is running.
-        [[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
+        [[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
         # No fixed length: the ok/fail signal supersedes this process and takes
         # over the LED. WORK_MAX only stops a runaway if no outcome ever
         # arrives (caller killed mid-attempt), so the LED cannot blink forever.
@@ -181,12 +177,18 @@ case "$MODE" in
         while (( SECONDS < OK_DURATION )); do
             blink 1 "$OK_DELAY"
         done
-        # Steady green is the resting "provisioned" state. ACT rests dark on a
-        # Pi 5, so this deliberately departs from restore-as-found: that is
-        # the point — it is visible at a glance and survives until reboot for
-        # an operator arriving late.
-        [[ -n "$RED" ]] && echo "$RED_DEFAULT_BRIGHTNESS" > "$RED/brightness" 2>/dev/null
-        echo 1 > "$LED/brightness" 2>/dev/null
+        # Steady green is the resting "provisioned" state, and it must be held
+        # by the `default-on` TRIGGER rather than a brightness write. A bare
+        # brightness value is not a stable state: the LED core treats a later
+        # `0` as "clear the trigger", and nothing keeps re-asserting the level,
+        # so the LED does not reliably stay lit. A trigger owns the LED until
+        # something explicitly replaces it.
+        [[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
+        if grep -qw default-on "$LED/trigger" 2>/dev/null; then
+            echo default-on > "$LED/trigger" 2>/dev/null
+        else
+            echo 1 > "$LED/brightness" 2>/dev/null
+        fi
         ;;
     fail)
         # Red must be under manual control to be driven alongside green.

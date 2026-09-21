@@ -95,6 +95,12 @@ The cause is physical, not logical. `ACT` and `PWR` are separate single-colour G
 
 An earlier version alternated the LEDs explicitly (red on/green off, then green on/red off). It looked **the same** to the observer. Driving them together was kept because it is simpler and its intent is unambiguous in the code. The practical consequence is what matters and it holds either way: the failure signal is visually distinct from the green-only success pattern, which is the point.
 
+**Restoring uses the device tree, not the live value.** `/proc/device-tree/leds/led-act/linux,default-trigger` is the factory setting (`mmc0` for ACT, `none` for PWR on a Pi 5). Reading the *current* trigger and calling it the default is how a single interrupted run strands the LED permanently: this script leaves the trigger at `none` while a pattern runs, so the next run would adopt `none` as the "default" and restore to a dead LED forever after.
+
+**Steady green is held by the `default-on` trigger, not a brightness write.** A bare brightness value is not a stable state — per `Documentation/ABI/testing/sysfs-class-led` the LED core treats a later `0` as "clear the active trigger", and nothing re-asserts the level in between, so the LED does not reliably stay lit. A trigger owns the LED until something explicitly replaces it. For the same reason the trigger is always written **last**, with no brightness write after it.
+
+Note both LEDs are `GPIO_ACTIVE_LOW` on a Pi 5 (device-tree flag `0x01000000`). The `leds-gpio` driver handles the inversion, which is why writing `1` reads back as `255` — that readback is generic driver behaviour (`gpio_led_get` returns `LED_FULL`) and says nothing about whether the LED is physically lit.
+
 Both patterns end by putting each LED back exactly as it was found — trigger and brightness are both recorded up front and rewritten afterwards. Nothing is substituted: on a Pi 5 both `ACT` and `PWR` sit at `[none]` and are driven directly by brightness (ACT lit, PWR dark), so forcing a trigger such as `mmc0` would leave green flashing on SD-card activity — a behaviour change, not a restore. Only the blink reports the outcome; nothing is left lit or dark afterwards to be misread later.
 
 Both patterns fork into the background, so callers return their real status immediately — a blocking 3-minute blink would outrun `usb-wifi@.service`'s 250s start timeout and be SIGKILLed mid-pattern, leaving the LED stuck. On a board with no writable LED the script exits 0 silently: this is cosmetic feedback and must never fail a provisioning run.
