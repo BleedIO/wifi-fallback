@@ -78,7 +78,7 @@ Matches `ACTION=="add"` on block partitions that (a) sit on the USB bus (`SUBSYS
 `led_signal.sh` (installed to `/usr/bin/`) gives an operator with no screen a visual provisioning outcome on the board's activity LED (`/sys/class/leds/ACT`, falling back to `led0`):
 
 - `led_signal.sh start` — **2 rapid red+green blinks together, then slow green blinking** for as long as the attempt runs. It has no fixed length: the `ok`/`fail` signal supersedes the process and takes over the LED, so the slow blink is a live "working on it" indicator rather than a timed pattern. `WORK_MAX` (300s) only stops a runaway if no outcome ever arrives.
-- `led_signal.sh ok` — **fast green blinking for 10s, then steady green**. Deliberately the same shape as the failure pattern (a sustained blink resolving into a resting state) at the same rapid rate as the start blinks, so the two outcomes differ by colour and ending rather than by rhythm. Green is left lit as a "provisioned" state visible at a glance until the next reboot — the one place the script departs from restoring the board as found, since ACT rests dark on a Pi 5.
+- `led_signal.sh ok` — **fast green blinking for 10s**, then both LEDs return to factory behaviour. Deliberately the same shape as the failure pattern at the same rapid rate as the start blinks, so the two outcomes differ by colour and duration rather than by rhythm.
 - `led_signal.sh fail` — **red+green driven together, slow blink (0.5s) for 3 minutes**, then both LEDs back as found. On a Pi 5 this is *seen* as alternating red/green rather than as one rose flash — see "Why the failure signal looks alternating" below; the behaviour is accepted, not a bug. Either way it is unmistakable against the green-only success pattern. The red PWR LED is optional — with no writable red the pattern degrades to a green-only slow blink.
 
 ### Why the failure signal looks alternating
@@ -99,7 +99,16 @@ An earlier version alternated the LEDs explicitly (red on/green off, then green 
 
 **Steady green is held by the `default-on` trigger, not a brightness write.** A bare brightness value is not a stable state — per `Documentation/ABI/testing/sysfs-class-led` the LED core treats a later `0` as "clear the active trigger", and nothing re-asserts the level in between, so the LED does not reliably stay lit. A trigger owns the LED until something explicitly replaces it. For the same reason the trigger is always written **last**, with no brightness write after it.
 
-Note both LEDs are `GPIO_ACTIVE_LOW` on a Pi 5 (device-tree flag `0x01000000`). The `leds-gpio` driver handles the inversion, which is why writing `1` reads back as `255` — that readback is generic driver behaviour (`gpio_led_get` returns `LED_FULL`) and says nothing about whether the LED is physically lit.
+**LED polarity is measured, not derived.** The device tree marks *both* `led-act` and `led-pwr` as `GPIO_ACTIVE_LOW` (gpios flag `0x01000000`), but that only holds for green. Verified on a Pi 5 reader:
+
+| LED | Lit | Dark |
+|---|---|---|
+| green (`ACT`) | `0` | `1` |
+| red (`PWR`) | `1` | `0` |
+
+Trusting the device-tree flag for red inverts it and lights red whenever the code means to turn it off — visible as an unwanted rose glow on the success pattern. The sysfs readback cannot be used to check any of this: `gpio_led_get()` returns `LED_FULL` (255) for any non-zero line level, so brightness reads back `255` after writing `1` whether or not the LED is physically lit. Only visual confirmation on hardware settles it.
+
+Because red's factory trigger is `none` — which does not drive the line — restoring the trigger alone leaves red at whatever the pattern last wrote. `restore_led()` therefore turns red off explicitly before restoring its trigger.
 
 Both patterns end by putting each LED back exactly as it was found — trigger and brightness are both recorded up front and rewritten afterwards. Nothing is substituted: on a Pi 5 both `ACT` and `PWR` sit at `[none]` and are driven directly by brightness (ACT lit, PWR dark), so forcing a trigger such as `mmc0` would leave green flashing on SD-card activity — a behaviour change, not a restore. Only the blink reports the outcome; nothing is left lit or dark afterwards to be misread later.
 

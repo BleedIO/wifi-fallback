@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ---- config you can tweak ----
 PKG=wifi-fallback
-VERSION="${VERSION:-0.6.11}"                   # or inject via: VERSION=0.6.12 packaging/build.sh
+VERSION="${VERSION:-0.6.13}"                   # or inject via: VERSION=0.6.14 packaging/build.sh
 # arm64 / armhf / amd64, etc. Defaults to the build host, but the package is
 # pure shell/Python with no compiled code, so it can be cross-built for a
 # reader from any host: ARCH=arm64 packaging/build.sh

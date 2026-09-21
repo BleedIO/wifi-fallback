@@ -6,12 +6,11 @@
 #                          outcome signal supersedes it (see below), so this
 #                          is a "working on it" indicator, not a fixed-length
 #                          pattern: it ends when ok/fail fires.
-#   led_signal.sh ok    -> fast green blinking for 10s, then steady green as
-#                          the resting "provisioned" state. Same shape as the
-#                          failure pattern (sustained blink, then a resting
-#                          state) at the same rapid rate as the start blinks,
-#                          so the two outcomes differ only by colour and
-#                          ending — not by rhythm.
+#   led_signal.sh ok    -> fast green blinking for 10s, then both LEDs are
+#                          returned to their factory behaviour. Same shape as
+#                          the failure pattern at the same rapid rate as the
+#                          start blinks, so the two outcomes differ by colour
+#                          and duration rather than by rhythm.
 #   led_signal.sh fail  -> red+green driven on together, then both off, slow
 #                          blink for 3 minutes, then both LEDs go back as
 #                          found.
@@ -115,6 +114,27 @@ if [[ -z "$DEFAULT_TRIGGER" ]]; then
 fi
 [[ -n "$RED_DEFAULT_TRIGGER" ]] || RED_DEFAULT_TRIGGER=none
 
+# LED polarity — MEASURED on a Pi 5, not derived from the device tree.
+#
+# The device tree marks BOTH led-act and led-pwr as GPIO_ACTIVE_LOW (gpios
+# flag 0x01000000), but that is only true of green. Verified on the hardware:
+#
+#   green (ACT):  0 = lit,  1 = dark   (active low, matches the DT flag)
+#   red   (PWR):  1 = lit,  0 = dark   (active HIGH, contradicts the DT flag)
+#
+# Trusting the flag for red inverts it and lights red whenever the code means
+# to turn it off, which shows up as an unwanted rose glow. Note also that the
+# sysfs readback cannot be used to check any of this: gpio_led_get() returns
+# LED_FULL (255) for any non-zero line level, so brightness reads back 255
+# after writing 1 whether or not the LED is physically lit.
+GREEN_ON=0;  GREEN_OFF=1
+RED_ON=1;    RED_OFF=0
+
+green_on()  { echo "$GREEN_ON"  > "$LED/brightness" 2>/dev/null; }
+green_off() { echo "$GREEN_OFF" > "$LED/brightness" 2>/dev/null; }
+red_on()    { [[ -n "$RED" ]] && echo "$RED_ON"  > "$RED/brightness" 2>/dev/null; return 0; }
+red_off()   { [[ -n "$RED" ]] && echo "$RED_OFF" > "$RED/brightness" 2>/dev/null; return 0; }
+
 # Put both LEDs back under their factory triggers.
 #
 # The trigger is written LAST and nothing is written to brightness after it:
@@ -122,8 +142,17 @@ fi
 # clears the active trigger, so a trailing brightness write silently undoes
 # the restore.
 restore_led() {
+    # Red first, and explicitly dark: its factory trigger is `none`, which
+    # does not drive the line, so simply restoring the trigger would leave red
+    # lit at whatever the pattern last wrote — an unwanted rose glow.
+    if [[ -n "$RED" ]]; then
+        red_off
+        echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
+    fi
+    # Green last: a trigger takes ownership of brightness, so nothing may be
+    # written to brightness after this point (the LED core reads a later 0 as
+    # "clear the active trigger").
     echo "$DEFAULT_TRIGGER" > "$LED/trigger" 2>/dev/null
-    [[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
     return 0
 }
 
@@ -136,9 +165,9 @@ blink() {
     # $1 = number of on/off cycles, $2 = delay per half-cycle
     local i
     for ((i = 0; i < $1; i++)); do
-        echo 1 > "$LED/brightness" 2>/dev/null || return 0
+        green_on
         sleep "$2"
-        echo 0 > "$LED/brightness" 2>/dev/null || return 0
+        green_off
         sleep "$2"
     done
 }
@@ -152,11 +181,9 @@ case "$MODE" in
         # runs for 3 minutes, so the two cannot be confused in practice.
         [[ -n "$RED" ]] && echo none > "$RED/trigger" 2>/dev/null
         for ((i = 0; i < START_COUNT; i++)); do
-            echo 1 > "$LED/brightness" 2>/dev/null
-            [[ -n "$RED" ]] && echo 1 > "$RED/brightness" 2>/dev/null
+            green_on; red_on
             sleep "$START_DELAY"
-            echo 0 > "$LED/brightness" 2>/dev/null
-            [[ -n "$RED" ]] && echo 0 > "$RED/brightness" 2>/dev/null
+            green_off; red_off
             sleep "$START_DELAY"
         done
         # Red is done; green now blinks slowly to show the attempt is running.
@@ -177,18 +204,10 @@ case "$MODE" in
         while (( SECONDS < OK_DURATION )); do
             blink 1 "$OK_DELAY"
         done
-        # Steady green is the resting "provisioned" state, and it must be held
-        # by the `default-on` TRIGGER rather than a brightness write. A bare
-        # brightness value is not a stable state: the LED core treats a later
-        # `0` as "clear the trigger", and nothing keeps re-asserting the level,
-        # so the LED does not reliably stay lit. A trigger owns the LED until
-        # something explicitly replaces it.
-        [[ -n "$RED" ]] && echo "$RED_DEFAULT_TRIGGER" > "$RED/trigger" 2>/dev/null
-        if grep -qw default-on "$LED/trigger" 2>/dev/null; then
-            echo default-on > "$LED/trigger" 2>/dev/null
-        else
-            echo 1 > "$LED/brightness" 2>/dev/null
-        fi
+        # Back to the board's factory LED behaviour, same as every other
+        # pattern: the blink burst is the whole signal, and nothing is left
+        # behind afterwards to be misread later.
+        restore_led
         ;;
     fail)
         # Red must be under manual control to be driven alongside green.
@@ -198,11 +217,9 @@ case "$MODE" in
         while (( SECONDS < FAIL_DURATION )); do
             # Both together, then both dark: a rose/amber flash that cannot be
             # confused with the green-only success pattern.
-            echo 1 > "$LED/brightness" 2>/dev/null
-            [[ -n "$RED" ]] && echo 1 > "$RED/brightness" 2>/dev/null
+            green_on; red_on
             sleep "$FAIL_DELAY"
-            echo 0 > "$LED/brightness" 2>/dev/null
-            [[ -n "$RED" ]] && echo 0 > "$RED/brightness" 2>/dev/null
+            green_off; red_off
             sleep "$FAIL_DELAY"
         done
         restore_led
