@@ -138,6 +138,24 @@ log("🔧 Starting Wi-Fi Config Web Server...")
 
 app = Flask(__name__, template_folder='templates')
 app.secret_key = secrets.token_hex(16)  # needed for Flask session cookies
+
+# Portal activity keeps the hotspot up: ap_mode.sh tears the AP down after
+# HOTSPOT_IDLE_TIMEOUT measured from this file. Only refresh it while the
+# timer exists (i.e. the reader is in hotspot mode).
+HOTSPOT_TIMER = "/tmp/wifi-fallback-hotspot-since"
+
+@app.before_request
+def touch_hotspot_timer():
+    try:
+        if os.path.exists(HOTSPOT_TIMER):
+            # Write a temp file and rename it over the timer, so ap_mode.sh
+            # never reads a half-written (empty) timestamp.
+            tmp = HOTSPOT_TIMER + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(f"{int(time.time())}\n")
+            os.replace(tmp, HOTSPOT_TIMER)
+    except OSError:
+        pass
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB cap
 ALLOWED_EXTENSIONS = {'deb'}
 
